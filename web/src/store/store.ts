@@ -159,6 +159,11 @@ export const useLedger = create<Store>()((set, get) => ({
         onEvent: (ev) => get().applyEvent(ev),
         onStatus: (s) => set({ stream: s }),
       });
+      // The snapshots above are fetched in parallel, so the run and steps can be
+      // older than the last event we resume after (a brand-new run moves
+      // understanding -> running within milliseconds). Those transitions are
+      // never replayed; refetch once now that the stream is subscribed.
+      get().refetch({ run: true, steps: true });
     } catch (e) {
       set({ loading: false });
       get().toast(`Could not load run ${runId}: ${errText(e)}`, 'error');
@@ -253,7 +258,10 @@ export const useLedger = create<Store>()((set, get) => ({
   injectFault: async (fault, body) => {
     set((s) => ({ faultLast: { ...s.faultLast, [fault]: { at: Date.now(), note: 'fired · recovering…' } } }));
     try {
-      await api().injectFault(fault, body);
+      // Always scope the fault to the run on screen; without run_id the API
+      // attaches it to the most recent active run, which may be another one.
+      const runId = get().runId;
+      await api().injectFault(fault, runId ? { run_id: runId, ...body } : body);
     } catch (e) {
       set((s) => ({ faultLast: { ...s.faultLast, [fault]: { at: Date.now(), note: 'failed' } } }));
       get().toast(`Fault ${fault} failed: ${errText(e)}`, 'error');

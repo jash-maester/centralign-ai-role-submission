@@ -1112,6 +1112,50 @@
         ]
       }
     },
+    "/playbooks/{name}": {
+      "get": {
+        "operationId": "get_playbook_playbooks__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Playbook Playbooks  Name  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Playbook",
+        "tags": [
+          "playbooks"
+        ]
+      }
+    },
     "/runs": {
       "get": {
         "operationId": "get_runs_runs_get",

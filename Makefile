@@ -6,7 +6,7 @@ RUN ?=
 LEVEL ?= 1.0
 ARGS ?=
 
-.PHONY: help up down build logs ps seed snapshot test test-unit test-crm test-browser test-live \
+.PHONY: help up down build logs ps seed snapshot test test-unit test-crm test-browser test-live test-gui \
         demo schema openapi clean chaos-false-claim chaos-kill-browser chaos-expire-session \
         chaos-model-outage determinism replay web-check
 
@@ -48,6 +48,12 @@ test-browser:  ## Playwright tests inside the browser image
 	$(DC) run --rm --no-deps -v ./tests:/repo/tests:ro -v ./services/browser/browser_worker:/app/browser_worker:ro \
 		-e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 worker-browser-1 \
 		python -m pytest -p no:cacheprovider -q -m browser /repo/tests $(ARGS)
+
+test-gui:  ## Track L: drive the demo in the GUI with Playwright (stack up + seeded, LLM_BACKEND=scripted); screenshots in web/screenshots/real
+	mkdir -p web/screenshots/real
+	$(DC) run --rm --no-deps -v ./tests:/repo/tests:ro -v ./web/screenshots/real:/out -e GUI_E2E_BASE=http://web \
+		-e GUI_E2E_OUT=/out -e PYTHONDONTWRITEBYTECODE=1 worker-browser-1 \
+		python -m pytest -p no:cacheprovider -q -s /repo/tests/e2e/test_gui_demo.py $(ARGS)
 
 test-live:  ## smoke tests that call OpenRouter (uses the daily free budget)
 	$(DC) run --rm -e LLM_LIVE_TESTS=1 test pytest -p no:cacheprovider -q -m live_llm tests $(ARGS)

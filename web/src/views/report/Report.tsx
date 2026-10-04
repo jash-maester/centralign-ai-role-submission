@@ -12,6 +12,7 @@ import { Count, PillButton } from '../../components/ui';
 const OUT_C: Record<LeadOutcome, string> = { created: 'var(--s-committed)', updated: 'var(--s-leased)', skipped: 'var(--fg3)', waiting: 'var(--s-input)', failed: 'var(--s-rejected)' };
 const OUT_LABEL: Record<LeadOutcome, string> = { created: 'Created', updated: 'Updated', skipped: 'Skipped', waiting: 'Waiting on you', failed: 'Failed' };
 const mmss = (s: number | null | undefined) => (s == null ? '—' : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`);
+const f2 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(2));
 const ms = (v: number | null | undefined) => (v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`);
 const ktok = (v: number | null | undefined) => (v == null ? '—' : v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));
 const HEAD = 'px-4 py-[9px] bg-panel2 border-b border-line text-xs font-medium text-fg3 uppercase tracking-[0.04em]';
@@ -219,13 +220,13 @@ export default function ReportView() {
         }>
           <Box className="overflow-x-auto">
             <div className="min-w-[960px]">
-              <div className={`grid gap-3 ${HEAD}`} style={{ gridTemplateColumns: '30px 56px minmax(150px,1.3fr) 130px 80px 110px 120px minmax(150px,1.4fr) 60px' }}>
+              <div className={`grid gap-3 ${HEAD}`} style={{ gridTemplateColumns: '30px 56px minmax(150px,1.2fr) minmax(150px,1.3fr) 76px 92px 84px minmax(140px,1fr) 56px' }}>
                 <span>#</span><span /><span>Lead</span><span>Outcome</span><span>Owner</span><span>Task</span><span>Email</span><span>Decided / verified</span><span>CRM</span>
               </div>
               {leads.map((l) => {
                 const has = l.outcome === 'created' || l.outcome === 'updated';
                 return (
-                  <div key={`${l.n}-${l.name}`} className="grid gap-3 items-center px-4 py-[9px] border-b border-line" style={{ gridTemplateColumns: '30px 56px minmax(150px,1.3fr) 130px 80px 110px 120px minmax(150px,1.4fr) 60px' }}>
+                  <div key={`${l.n}-${l.name}`} className="grid gap-3 items-center px-4 py-[9px] border-b border-line" style={{ gridTemplateColumns: '30px 56px minmax(150px,1.2fr) minmax(150px,1.3fr) 76px 92px 84px minmax(140px,1fr) 56px' }}>
                     <span className="mono text-xs text-fg3">{l.n}</span>
                     {l.screenshot ? (
                       <a href={api().evidenceUrl(l.screenshot)} target="_blank" rel="noreferrer"><img src={api().evidenceUrl(l.screenshot)} alt={`row ${l.n}`} className="w-14 h-[34px] rounded border border-line object-cover bg-panel2" /></a>
@@ -236,8 +237,11 @@ export default function ReportView() {
                       <span className="text-base font-medium truncate">{l.name}</span>
                       <span className="mono text-2xs text-fg3 truncate">{l.company || '—'} · {l.email || '—'}</span>
                     </div>
-                    <span><span className="inline-flex items-center px-2 py-0.5 rounded-[10px] text-xs font-medium whitespace-nowrap tint-11" style={{ ['--c' as string]: OUT_C[l.outcome] }}>{l.outcome_detail ?? l.outcome}</span></span>
-                    <span className="mono text-xs+ text-fg2">{l.owner ?? '—'}</span>
+                    <div className="flex flex-col items-start gap-0.5 min-w-0" title={l.outcome_detail ?? undefined}>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-[10px] text-xs font-medium whitespace-nowrap tint-11" style={{ ['--c' as string]: OUT_C[l.outcome] }}>{OUT_LABEL[l.outcome] ?? l.outcome}</span>
+                      {l.outcome_detail && <span data-testid="outcome-detail" className="text-2xs text-fg3 truncate max-w-full">{l.outcome_detail}</span>}
+                    </div>
+                    <span className="mono text-xs+ text-fg2 truncate">{l.owner ?? '—'}</span>
                     <span className="mono text-xs+ text-fg2 truncate">{l.task_due ?? '—'}</span>
                     <span className="mono text-xs whitespace-nowrap" style={{ color: /^sent/.test(l.email_status ?? '') ? 'var(--s-committed)' : l.email_status === 'waiting' ? 'var(--s-input)' : 'var(--fg3)' }}>{l.email_status ?? '—'}</span>
                     <div className="flex flex-col min-w-0">
@@ -256,7 +260,9 @@ export default function ReportView() {
           <Box>
             {r.decisions.length === 0 && <div className="px-4 py-3 text-sm text-fg3">No review decisions in this run.</div>}
             {r.decisions.map((d, i) => {
-              const auto = !d.escalated && d.decided_by !== 'you' && d.confidence >= d.threshold;
+              // an open (undecided) review has no confidence/threshold yet
+              const conf = d.confidence ?? null, thr = d.threshold ?? null;
+              const auto = !d.escalated && d.decided_by !== 'you' && conf != null && thr != null && conf >= thr;
               return (
                 <div key={i} className="grid gap-4 items-center px-4 py-3 border-b border-line" style={{ gridTemplateColumns: 'minmax(0,1.2fr) 200px minmax(0,1fr) 110px' }}>
                   <div className="flex flex-col gap-0.5 min-w-0">
@@ -265,10 +271,10 @@ export default function ReportView() {
                   </div>
                   <div className="flex flex-col gap-1">
                     <div className="relative h-2 rounded bg-bg2">
-                      <div className="absolute left-0 top-0 bottom-0 rounded" style={{ width: `${Math.round(d.confidence * 100)}%`, background: auto ? 'var(--s-committed)' : 'var(--s-input)' }} />
-                      <div className="absolute -top-[3px] -bottom-[3px] w-0.5" style={{ left: `${Math.round(d.threshold * 100)}%`, background: 'var(--fg)' }} />
+                      <div className="absolute left-0 top-0 bottom-0 rounded" style={{ width: `${Math.round((conf ?? 0) * 100)}%`, background: auto ? 'var(--s-committed)' : 'var(--s-input)' }} />
+                      {thr != null && <div className="absolute -top-[3px] -bottom-[3px] w-0.5" style={{ left: `${Math.round(thr * 100)}%`, background: 'var(--fg)' }} />}
                     </div>
-                    <span className="mono text-2xs text-fg3">{d.forced_reason ? `${d.confidence.toFixed(2)} · ${d.forced_reason}` : `${d.confidence.toFixed(2)} vs ${d.threshold.toFixed(2)}`}</span>
+                    <span className="mono text-2xs text-fg3">{d.forced_reason ? `${f2(conf)} · ${d.forced_reason}` : `${f2(conf)} vs ${f2(thr)}`}</span>
                   </div>
                   <span className="text-sm+ text-pretty">{d.result}</span>
                   <span className="mono text-xs text-fg3 text-right">{d.decided_by}</span>

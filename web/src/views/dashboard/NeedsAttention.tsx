@@ -7,7 +7,9 @@ import { Dot } from '../../components/ui';
 export function EscalationCard({ esc }: { esc: Escalation }) {
   const answer = useLedger((s) => s.answerEscalation);
   const [pick, setPick] = useState<string | null>(null);
-  const [saveRule, setSaveRule] = useState(true);
+  // A batch email approval is a one-off yes/no, not a reusable rule.
+  const isApproval = !esc.lane && esc.options.some((o) => o.value === 'approve');
+  const [saveRule, setSaveRule] = useState(!isApproval);
   const [busy, setBusy] = useState(false);
   const below = esc.confidence < esc.threshold;
   return (
@@ -63,13 +65,13 @@ export function EscalationCard({ esc }: { esc: Escalation }) {
         >
           {busy ? 'Committing…' : 'Commit decision'}
         </button>
-        <label className="flex items-center gap-[7px] text-sm text-fg2 cursor-pointer select-none">
+        {!isApproval && <label className="flex items-center gap-[7px] text-sm text-fg2 cursor-pointer select-none">
           <input type="checkbox" className="sr-only" checked={saveRule} onChange={(e) => setSaveRule(e.target.checked)} />
           <span className="w-3.5 h-3.5 rounded-[3px] border grid place-items-center text-white text-[10px]" style={{ borderColor: saveRule ? 'var(--s-input)' : 'var(--line2)', background: saveRule ? 'var(--s-input)' : 'transparent' }}>
             {saveRule ? '✓' : ''}
           </span>
           Save as playbook rule
-        </label>
+        </label>}
       </div>
     </div>
   );

@@ -260,7 +260,7 @@ def fan_out(run_id: str, parse_step: Step, facts: dict[str, Any], cfg: RunConfig
 
 
 def contact_stage(ctx: LaneContext, *, update_contact_id: str | None, account_id: str | None = None,
-                  depends_on: list[str]) -> list[Step]:
+                  depends_on: list[str], account_name: str | None = None) -> list[Step]:
     """Contact step (create or update) + follow-up task, then any tail stages."""
     lead, cfg, lane = ctx.lead, ctx.cfg, ctx.lane
     email = (lead.get("email") or "").strip().lower()
@@ -286,6 +286,9 @@ def contact_stage(ctx: LaneContext, *, update_contact_id: str | None, account_id
             inputs["owner"] = expect["owner"] = ctx.owner
         if account_id:
             inputs["account_id"] = expect["account_id"] = account_id
+            # the browser operator links accounts by name (it cannot type an id)
+            if account_name:
+                inputs["account_name"] = account_name
         contact = new_step(
             ctx.run_id, K.CRM_CREATE_CONTACT, cfg, lane=lane, title=f"Create contact {name}", inputs=inputs,
             check="crm.contact_exists", args={"email": email}, expect=expect, depends_on=depends_on,
@@ -332,7 +335,8 @@ def after_lookup(ctx: LaneContext, search: Step) -> list[Step]:
             context={"candidates": cands, "owner": lk.get("owner"), "owner_reason": lk.get("owner_reason")},
         )]
     if result == "none" and ctx.owner:
-        return contact_stage(ctx, update_contact_id=None, account_id=lk.get("account_id"), depends_on=[search.id])
+        return contact_stage(ctx, update_contact_id=None, account_id=lk.get("account_id"), depends_on=[search.id],
+                             account_name=lk.get("account_name"))
     reason = lk.get("owner_reason") or "unknown_region"
     accts = lk.get("account_candidates") or []
     opts = [ReviewOption(label=f"Link to {a.get('name')}", value=f"link_account:{a.get('id')}",
@@ -391,7 +395,8 @@ def after_review(ctx: LaneContext, review: Step) -> list[Step]:
     if dec == "link_account" and val:
         acct = next((a for a in ctx.lookup.get("account_candidates") or [] if a.get("id") == val), {})
         ctx.owner = ctx.owner or acct.get("owner")
-        return contact_stage(ctx, update_contact_id=None, account_id=str(val), depends_on=[review.id])
+        return contact_stage(ctx, update_contact_id=None, account_id=str(val), depends_on=[review.id],
+                             account_name=acct.get("name"))
     if dec == "create_new":
         return contact_stage(ctx, update_contact_id=None, depends_on=[review.id])
     return []

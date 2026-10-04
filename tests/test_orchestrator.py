@@ -443,6 +443,8 @@ async def test_review_decisions_continue_the_lane(r, keys):
     create9 = lanes["lead:9"][2]
     assert create9.kind == K.CRM_CREATE_CONTACT and create9.inputs["account_id"] == "a-health"
     assert create9.inputs["owner"] == "a.chen"  # the linked account's owner
+    # Track L: the browser operator links accounts by name, so the name travels with the id
+    assert create9.inputs["account_name"] == "Lumen Health"
     assert [s.kind for s in lanes["lead:11"]] == [K.REVIEW_AMBIGUITY]  # skipped: nothing more
     outcome = {x["lane"]: x for x in lane_outcomes(await ledger.list_steps(r, keys, run.id),
                                                     await ledger.get_facts(r, keys, run.id))}
