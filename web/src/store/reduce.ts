@@ -6,7 +6,7 @@
  * bodies, escalation changes) ask the store to refetch instead of guessing.
  */
 import type { Attempt, Fact, LedgerEvent, Run, RunStatus, Step, StepStatus } from '../api/types';
-import { STEP_STATUSES } from '../api/types';
+import { RUN_STATUSES, STEP_STATUSES } from '../api/types';
 
 export interface RunSlice {
   run: Run | null;
@@ -92,7 +92,10 @@ export function reduceEvent(slice: RunSlice, ev: LedgerEvent): { slice: RunSlice
   }
 
   // ---- run status / criteria ----------------------------------------------
-  const rs = EVENT_RUN_STATUS[ev.type];
+  // run.status carries non-terminal transitions as payload {from, to}
+  const rs = ev.type === 'run.status'
+    ? ((RUN_STATUSES as readonly string[]).includes(String(p.to)) ? (p.to as RunStatus) : undefined)
+    : EVENT_RUN_STATUS[ev.type];
   if (next.run && (!ev.run_id || ev.run_id === next.run.id)) {
     let run = next.run;
     if (rs) run = { ...run, status: rs, finished_at: rs.startsWith('completed') || rs === 'failed' ? ev.ts : run.finished_at };
