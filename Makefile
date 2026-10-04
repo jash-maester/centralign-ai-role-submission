@@ -52,8 +52,9 @@ test-browser:  ## Playwright tests inside the browser image
 test-live:  ## smoke tests that call OpenRouter (uses the daily free budget)
 	$(DC) run --rm -e LLM_LIVE_TESTS=1 test pytest -p no:cacheprovider -q -m live_llm tests $(ARGS)
 
-demo:  ## run the one-line goal end to end and print the report
-	$(DC) run --rm test python -m ledger_core.cli demo
+demo:  ## run the one-line goal end to end and print the report (LLM_BACKEND=scripted, CRM_WRITE_PATH=api, ARGS=)
+	$(DC) run --rm $(if $(LLM_BACKEND),-e LLM_BACKEND=$(LLM_BACKEND)) $(if $(CRM_WRITE_PATH),-e CRM_WRITE_PATH=$(CRM_WRITE_PATH)) \
+		test python -m ledger_core.cli demo $(ARGS)
 
 schema:  ## export protocol JSON schema for the web client
 	$(DC) run --rm -v ./web:/repo/web test python /repo/services/core/scripts/export_schema.py /repo/web/src/api/protocol.schema.json
