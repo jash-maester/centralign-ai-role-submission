@@ -6,7 +6,7 @@ import json
 
 import httpx
 import pytest
-import respx
+respx = pytest.importorskip("respx")  # not in the browser image (make test-browser collects tests/)
 from pydantic import BaseModel
 
 from ledger_core import llm, run_config

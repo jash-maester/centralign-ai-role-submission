@@ -39,7 +39,12 @@ def _need(inputs: dict[str, Any], *names: str) -> Any:
     return v
 
 
-async def execute(op: Operator, kind: StepKind | str, inputs: dict[str, Any], *, label: str | None = None) -> SkillResult:
+async def execute(
+    op: Operator, kind: StepKind | str, inputs: dict[str, Any], *, label: str | None = None,
+    check_then_act: bool = True, create_missing_account: bool = True,
+) -> SkillResult:
+    """check_then_act=False skips the write skills' existence check (demo of duplicates);
+    create_missing_account=False links only an Account that already exists."""
     kind = StepKind(kind)
     if kind is StepKind.CRM_SEARCH_CONTACT:
         email = _pick(inputs, "email", "emailAddress")
@@ -58,6 +63,8 @@ async def execute(op: Operator, kind: StepKind | str, inputs: dict[str, Any], *,
             account_name=_pick(inputs, "account_name", "company", "accountName"),
             owner_user_name=_pick(inputs, "owner", "owner_user_name", "assigned_user"),
             label=label,
+            check=check_then_act,
+            create_missing_account=create_missing_account,
         )
     if kind is StepKind.CRM_UPDATE_CONTACT:
         return await op.update_contact(
@@ -74,6 +81,7 @@ async def execute(op: Operator, kind: StepKind | str, inputs: dict[str, Any], *,
             _need(inputs, "due_date", "due"),
             _pick(inputs, "owner", "owner_user_name"),
             label=label,
+            check=check_then_act,
         )
     raise ValueError(f"browser operator cannot execute {kind}")
 
