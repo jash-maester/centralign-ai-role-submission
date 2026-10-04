@@ -49,6 +49,8 @@ class UIError(Exception):
     """The page did not look the way a skill expected (recoverable by the loop)."""
 
 
+FORM_ROUTE = re.compile(r"#[A-Za-z]+/(create|edit/)")
+
 SkillBody = Callable[[SkillResult], Awaitable[None]]
 Checkpoint = Callable[["Operator", str], Awaitable[None] | None]
 
@@ -238,12 +240,15 @@ class Operator:
         page = self.page
         target = self.url(route)
         same = page.url == target
+        leaving_form = bool(FORM_ROUTE.search(page.url)) or await sel.open_modal(page).count() > 0
 
         async def go() -> None:
             if same:
                 await page.reload()
             else:
                 await page.goto(target)
+            if leaving_form:
+                await self.confirm_leave_form()
 
         if not wait_api:
             await go()
@@ -255,6 +260,24 @@ class Operator:
                 await go()
         except PlaywrightError:
             pass  # the login page or a cached view; callers wait for their own elements
+
+    async def confirm_leave_form(self, timeout_ms: int = 1500) -> bool:
+        """Answer Espo's "leave the form?" confirm (shown after an abandoned edit)."""
+        try:
+            await sel.leave_form_yes(self.page).wait_for(state="visible", timeout=timeout_ms)
+        except PlaywrightError:
+            return False
+        await sel.leave_form_yes(self.page).click()
+        return True
+
+    async def discard_forms(self) -> None:
+        """Best effort after a failed skill: close an open modal form without saving."""
+        try:
+            if await sel.modal_cancel(self.page).count():
+                await sel.modal_cancel(self.page).first.click()
+                await self.confirm_leave_form()
+        except PlaywrightError:
+            pass
 
     async def wait_for(self, locator: Any, timeout_ms: int | None = None) -> None:
         """Wait for `locator`, but fail fast with SessionLost if the login form shows instead."""
@@ -321,6 +344,8 @@ class Operator:
                 except (PlaywrightError, SessionLost) as e2:
                     result.observe("recovery", f"{action.value} failed", problem=str(e2)[:200])
         await self.shot(result, "after")
+        if not result.ok:
+            await self.discard_forms()
         result.data.setdefault("recoveries", attempt)
         return result
 
@@ -380,4 +405,3 @@ class Operator:
         return await skills.create_task(self, contact_id, subject, due_date, owner_user_name, **kw)
 
 
-VIEW_ROUTE = re.compile(r"#(?P<entity>[A-Za-z]+)/view/(?P<id>[A-Za-z0-9]+)")

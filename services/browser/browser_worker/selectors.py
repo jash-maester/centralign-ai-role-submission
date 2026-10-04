@@ -61,6 +61,22 @@ def open_modal(page: Page) -> Locator:
     return page.locator(".modal-dialog:visible")
 
 
+# Espo's own confirm when navigating away from an edited form.
+LEAVE_FORM_TEXT = "leave the form"
+
+
+def leave_form_dialog(page: Page) -> Locator:
+    return page.locator(".modal-dialog:visible").filter(has_text=LEAVE_FORM_TEXT)
+
+
+def leave_form_yes(page: Page) -> Locator:
+    return leave_form_dialog(page).get_by_role("button", name="Yes", exact=True)
+
+
+def modal_cancel(page: Page) -> Locator:
+    return open_modal(page).get_by_role("button", name="Cancel", exact=True)
+
+
 def page_heading(page: Page) -> Locator:
     return page.locator(".page-header h3, .header-title").first
 

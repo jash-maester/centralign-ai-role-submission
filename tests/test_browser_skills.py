@@ -258,3 +258,53 @@ async def test_unknown_owner_gives_up_with_reason(op, admin, uniq):
 
 def test_evidence_dir_is_the_volume():
     assert os.path.isdir(get_settings().evidence_dir)
+
+
+async def test_dirty_form_after_give_up_does_not_block_next_skill(op, uniq):
+    bad = await op.create_contact("No", f"Owner{uniq}", f"x.{uniq}@example-{uniq}.test", owner_user_name=f"ghost.{uniq}")
+    assert bad.ok is False
+    nxt = await op.search_contact("marcus.lee@acme.com", label=f"test-{uniq}-after-giveup")
+    assert nxt.ok and nxt.data["recoveries"] == 0, nxt.as_dict()
+    assert nxt.record_id
+
+
+async def test_recovery_reloads_and_retries_with_injected_chooser(op, admin, created, uniq):
+    """A transient UI failure right before save: the chooser picks RELOAD, the skill redoes check-then-act."""
+    from browser_worker.operator import UIError
+    from browser_worker.recovery import RecoveryAction
+
+    calls: list[tuple[str, int]] = []
+
+    async def chooser(state, attempt, problem):
+        calls.append((state.value, attempt))
+        return "reload"  # plain strings are validated against RecoveryAction
+
+    op.recovery_chooser = chooser
+    fired = {"n": 0}
+
+    def flaky(_op, _name):
+        if fired["n"] == 0:
+            fired["n"] += 1
+            raise UIError("simulated transient UI glitch")
+
+    op.on_checkpoint("before_save", flaky)
+    email = f"tom.{uniq}@orbital-{uniq}.test"
+    res = await op.create_contact("Tom", f"Becker{uniq}", email, label=f"test-{uniq}-reload")
+    assert res.ok and res.acted, res.as_dict()
+    created.append(("Contact", res.record_id))
+    assert calls == [("app", 1)]
+    assert any(o.get("action") == RecoveryAction.RELOAD.value for o in res.observations)
+    assert [r["id"] for r in await contacts_by_email(admin, email)] == [res.record_id]
+
+
+async def test_update_sets_empty_title_but_never_overwrites(op, admin, created, uniq):
+    params = {"where[0][type]": "equals", "where[0][attribute]": "name", "where[0][value]": "Acme Corp"}
+    acme = (await admin.get("/Account", params=params)).json()["list"][0]
+    seeded = await make_contact(admin, created, uniq, accountId=acme["id"])
+    res = await op.update_contact(seeded["id"], title="Head of Data", label=f"test-{uniq}-title")
+    assert res.ok and res.acted, res.as_dict()
+    assert (await contact(admin, seeded["id"]))["title"] == "Head of Data"
+    again = await op.update_contact(seeded["id"], title="Intern", label=f"test-{uniq}-title-2")
+    assert again.ok and again.acted is False, again.as_dict()
+    assert again.data["skipped"]["title"] == "already set"
+    assert (await contact(admin, seeded["id"]))["title"] == "Head of Data"

@@ -191,6 +191,13 @@ async def save_record(
     if not resp.ok:
         raise UIError(f"save {entity} failed: HTTP {resp.status}")
     data = await resp.json()
+    if scope is page and method == "POST":
+        # A full-page create form navigates to the new record; until it has, Espo
+        # still treats the form as dirty and would ask "leave the form?".
+        try:
+            await page.wait_for_url(re.compile(rf"#{entity}/view/{data['id']}"), timeout=op.timeout_ms)
+        except PlaywrightError:
+            result.observe(f"{entity.lower()}.create", "saved, but the view did not open", record_id=data["id"])
     await op.checkpoint("after_save")
     return data
 
@@ -333,10 +340,6 @@ async def create_contact(
         await op.shot(result, "before")
         saved = await save_record(op, result, "Contact", page, on_possible_duplicate=on_possible_duplicate)
         result.acted, result.record_id = True, saved["id"]
-        try:
-            await page.wait_for_url(re.compile(rf"#Contact/view/{saved['id']}"), timeout=op.timeout_ms)
-        except PlaywrightError:
-            pass
         result.observe("contact.view", f"created contact {full}", contact_id=saved["id"])
 
     return await op.run_skill("crm.create_contact", label, body)
