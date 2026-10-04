@@ -125,13 +125,17 @@ async def _drive_crm(r, keys, o, run_id):
             return
 
 
-async def test_open_escalation_holds_only_its_lane_and_run_pends(r, keys, tmp_path):
+async def test_open_escalation_holds_only_its_lane_and_run_pends(r, keys, tmp_path, monkeypatch):
     """Sam waits on a human; Ann's lane runs to the end; the run finishes as
     completed_pending_input, resumes on the answer, and completes."""
     from ledger_core.llm_testing import StubLLM
     from ledger_core.protocol import ReviewDecision, RunStatus
+    from ledger_core import orchestrator
     from test_orchestrator import HEADER, _run_with, finish_step
 
+    # CRM lanes only: Track K's email stage (drafts, approval batch, sends) is
+    # covered by test_meta_reviewer / test_email_e2e (W3 integration).
+    monkeypatch.setattr(orchestrator, "RUN_STAGES", [])
     o, run = await _run_with(r, keys, tmp_path, HEADER + "Ann Lee,ann@x.test,Xco,,US\nSam Ito,sam@lumen.io,Lumen,,\n", [
         {"id": "c1", "text": "File parsed", "check": "file.parsed_rows"},
         {"id": "c2", "text": "Ambiguous rows decided", "check": "review.decided"}])

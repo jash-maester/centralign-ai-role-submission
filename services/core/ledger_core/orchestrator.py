@@ -285,8 +285,18 @@ class Orchestrator:
             owner = await self.r.hget(self.keys.run(run_id), "orchestrator")
             if isinstance(owner, bytes):
                 owner = owner.decode()
-            if (owner and owner != self.agent_id) or (self.owned_only and owner != self.agent_id):
-                return run  # pinned to another orchestrator
+            if self.owned_only and owner != self.agent_id:
+                return run  # an in-process orchestrator handles only its own runs
+            if owner and owner != self.agent_id:
+                # Pinned to another orchestrator (a scripted `cli demo`). W3: once that
+                # one is gone and the run only waits on a human, adopt it, so answering
+                # an escalation (POST /escalations/{id}, `approvals answer`) still moves
+                # the lane. Runs still being planned stay pinned (no surprise LLM use).
+                if (run.status != RunStatus.COMPLETED_PENDING_INPUT
+                        or await agents.get_liveness(self.r, self.keys, owner) is not None):
+                    return run
+                await self.r.hset(self.keys.run(run_id), "orchestrator", self.agent_id)
+                log.info("%s: adopted run %s from %s (no longer alive)", self.agent_id, run_id, owner)
             try:
                 if run.status in (RunStatus.CREATED, RunStatus.UNDERSTANDING) and not run.criteria:
                     run = await self._understand(run)
