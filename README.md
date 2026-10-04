@@ -122,6 +122,7 @@ All tests run in containers against a real Redis, real EspoCRM and real Mailpit.
 | `make test-gui` | drives the whole demo from the GUI with Playwright, saves screenshots | passed (~100 s) |
 | `make web-check` | web typecheck, lint, vitest | 34 passed |
 | `make test-live` | smoke test against OpenRouter (uses the daily budget) | passed |
+| `make demo LLM_BACKEND=openrouter` with `LLM_CACHE=off` | the full demo on live free models | completed: 28 live calls, same outcome ([details](submission/SUBMISSION.md#live-run-on-real-models)) |
 
 ## Repository layout
 

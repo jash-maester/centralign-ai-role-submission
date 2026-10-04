@@ -185,6 +185,20 @@ ever be sent).
 ![Escalation](screenshots/05-escalation-sam-ito.png)
 ![Report](screenshots/08-report.png)
 
+### Live run on real models
+
+On 2026-10-04 (15:37-15:41 IST) the full demo ran on live OpenRouter free models with
+`LLM_CACHE=off`, through the browser path and every service (`make demo
+LLM_BACKEND=openrouter`). The ledger's `llm.call` events record **28 live calls, none
+cached**: orchestrator 2 and meta-reviewer 3 on `nvidia/nemotron-3-super-120b-a12b:free`,
+drafter 12 on `qwen/qwen3.8-27b:free`, verifier/LLM judge 9 on Nemotron, plus 2 calls to
+the fallback `google/gemma-4-31b-it:free` that its provider rate-limited (HTTP 429),
+which exercised the fallback path for real. Outcome, in 3 min 40 s: the model wrote its
+own success criteria from the goal and playbook; 6 contacts created, 3 updated, 2
+skipped with a reason, 9 follow-up tasks, 8 drafts valid, 8 emails sent with an approval
+fact, Jo Park skipped by the meta-reviewer (0.95), and only Sam Ito escalated: the same
+result as the deterministic demo.
+
 ## 4. Known limitations
 
 - **Postconditions must be writable.** Fuzzy outcomes (email tone) fall back to an LLM
@@ -199,11 +213,12 @@ ever be sent).
 - **Redis is a single point of failure** (AOF persistence, no replication).
 - **A confident wrong decision by the meta-reviewer** is possible; the verifier still
   checks outcomes and every auto decision is in the report with its evidence.
-- **Live-model coverage.** Free models are rate-limited and flaky. The full demo, the
-  chaos run, determinism and replay are validated end to end on the scripted backend
-  (recorded structured model answers through the same code paths). Live OpenRouter
-  calls were validated for the LLM layer (smoke tests) and the orchestrator's
-  understand + plan; see the note at the end of this section for the live end-to-end run.
+- **Live-model coverage.** Free models are rate-limited and slow (a draft takes ~30 s on
+  Qwen). The chaos run, determinism, replay and restart tests run on the scripted
+  backend (recorded structured model answers through the same code paths) so they are
+  deterministic and free. The plain demo was also run **end to end on live free models
+  with the response cache off**: see [Live run on real models](#live-run-on-real-models).
+  Fault injection has not yet been exercised on live models.
 - **Smaller gaps:** with "always ask a human for external email" on, each email
   escalates separately; a dead-lane hand-off offers "send manually / skip" but not
   "retry"; follow-up due dates ignore holidays; the browser's task and search lists read
