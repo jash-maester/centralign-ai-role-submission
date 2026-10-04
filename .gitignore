@@ -8,3 +8,4 @@ web/dist/
 evidence/
 .venv/
 .cache/
+.claude/worktrees/
