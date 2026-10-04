@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo, useState } from 'react';
 import { useLedger } from '../../store/store';
-import { agentView, buildLanes, initials, LANE_COLUMNS, shortModel, type AgentView, type Lane } from '../../lib/derive';
+import { agentView, buildLanes, coreActivity, initials, LANE_COLUMNS, shortModel, type AgentView, type Lane } from '../../lib/derive';
 import { Chip, Count, Dot, Empty, PillButton, TtlRing, useNow } from '../../components/ui';
 import type { AgentStatus } from '../../api/types';
 
@@ -23,9 +23,12 @@ function useAgentViews(): { a: AgentStatus; v: AgentView }[] {
   const agents = useLedger((s) => s.agents);
   const agentsAt = useLedger((s) => s.agentsAt);
   const ttl = useLedger((s) => s.config.lease_ttl_s);
-  const esc = useLedger((s) => s.escalations.length);
+  const escalations = useLedger((s) => s.escalations);
+  const steps = useLedger((s) => s.steps);
+  const run = useLedger((s) => s.run);
   const now = useNow(1000);
-  return agents.map((a) => ({ a, v: agentView(a, now, agentsAt, ttl, esc) }));
+  const list = useMemo(() => Object.values(steps), [steps]);
+  return agents.map((a) => ({ a, v: coreActivity(agentView(a, now, agentsAt, ttl, escalations.length), a, list, escalations, run) }));
 }
 
 function FlowStrip({ onWorkers }: { onWorkers: () => void }) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentStatus, LedgerEvent, Step } from '../api/types';
-import { agentView, autoAt, buildLanes, counters, decisions, handledAutomatically, progressCounts } from '../lib/derive';
+import { agentView, autoAt, buildLanes, coreActivity, counters, decisions, handledAutomatically, progressCounts } from '../lib/derive';
 import { stepVisual } from '../lib/states';
 import { temperature } from '../lib/runConfig';
 
@@ -106,5 +106,17 @@ describe('agent view', () => {
     expect(v.step).toBe('stp_41 · t2');
     expect(v.ttlFrac).toBeCloseTo(0.5);
     expect(agentView({ ...base, model: 'google/g:free' }, now, now, 15, 0).model).toBe('google/g:free (fallback)');
+  });
+});
+
+describe('core agent activity', () => {
+  it('verifier shows the claim it is checking; meta-reviewer its escalation', () => {
+    const now = 1000;
+    const vv = agentView({ id: 'verifier', name: 'Verifier', role: 'verifier', alive: true, last_heartbeat_ms: now }, now, now, 15, 0);
+    const steps = [st('stp_22', 'crm.create_task', 'claimed_done', 'lead:2', { postcondition: { check: 'crm.task_exists' } })];
+    expect(coreActivity(vv, { role: 'verifier' }, steps, [], null)).toMatchObject({ state: 'verifying', step: 'stp_22 crm.task_exists' });
+    const mv = agentView({ id: 'meta-reviewer', name: 'M', role: 'meta_reviewer', alive: true, last_heartbeat_ms: now }, now, now, 15, 1);
+    const esc = [{ id: 'e', run_id: 'r', step_id: 'stp_95', lane: 'lead:9', question: 'q', options: [], confidence: 0.5, threshold: 0.8 }];
+    expect(coreActivity(mv, { role: 'meta_reviewer' }, [], esc, null).step).toBe('escalated lead:9 → human');
   });
 });

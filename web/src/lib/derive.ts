@@ -335,3 +335,25 @@ export function tagEvents(events: LedgerEvent[]): ('FAULT' | 'RECOVERY' | '')[] 
     return '';
   });
 }
+
+/**
+ * Core agents (orchestrator, verifier, meta-reviewer) hold no leases, so their
+ * activity is read from the step graph: what the verifier is checking, what
+ * the meta-reviewer is reviewing or escalated, what the orchestrator watches.
+ */
+export function coreActivity(v: AgentView, a: Pick<AgentStatus, 'role'>, steps: Step[], escalations: Escalation[], run: Run | null): AgentView {
+  if (v.stale) return v;
+  const live = run && !['completed', 'failed', 'completed_pending_input'].includes(run.status);
+  if (a.role === 'verifier') {
+    const s = steps.find((x) => x.status === 'claimed_done' || x.status === 'verified');
+    return s ? { ...v, state: 'verifying', c: VISUAL_COLOR.claimed, step: `${s.id} ${s.postcondition?.check ?? ''}`.trim() } : v;
+  }
+  if (a.role === 'meta_reviewer') {
+    const s = steps.find((x) => x.status === 'review_required');
+    if (s) return { ...v, state: 'reviewing', c: VISUAL_COLOR.leased, step: `${s.id} ${s.kind}` };
+    if (escalations.length) return { ...v, step: `escalated ${escalations.map((e) => e.lane ?? e.step_id).join(', ')} → human` };
+    return v;
+  }
+  if (a.role === 'orchestrator' && live) return { ...v, state: 'active', c: VISUAL_COLOR.leased, step: `watching · ${steps.length} steps` };
+  return v;
+}
