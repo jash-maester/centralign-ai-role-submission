@@ -308,3 +308,50 @@ async def test_update_sets_empty_title_but_never_overwrites(op, admin, created, 
     assert again.ok and again.acted is False, again.as_dict()
     assert again.data["skipped"]["title"] == "already set"
     assert (await contact(admin, seeded["id"]))["title"] == "Head of Data"
+
+
+async def test_ui_changed_fault_gives_up_with_reason(tmp_path, admin, uniq):
+    """F5: a broken selector ends in a bounded give-up (for the replanner), never a false success."""
+    from browser_worker import selectors
+
+    email = f"grace.{uniq}@tallgrass-{uniq}.test"
+    selectors.set_ui_changed(True)
+    try:
+        async with Operator(f"test-f5-{uniq}", state_dir=str(tmp_path), timeout_ms=3000) as op:
+            res = await op.create_contact("Grace", f"Wu{uniq}", email, label=f"test-{uniq}-uichanged")
+    finally:
+        selectors.set_ui_changed(False)
+    assert res.ok is False and res.acted is False, res.as_dict()
+    assert "gave up" in res.reason
+    assert [o["action"] for o in res.observations if o["page"] == "recovery"] == ["reload", "home", "give_up"]
+    assert await contacts_by_email(admin, email) == []
+
+
+async def test_demo_lead_flow_through_dispatch(op, admin, created, uniq):
+    """Search -> create -> task for one lead, the way the worker loop will drive it."""
+    from browser_worker.dispatch import execute, to_claim
+
+    email = f"omar.{uniq}@brightline-{uniq}.test"
+    found = await execute(op, "crm.search_contact", {"email": email}, label=f"test-{uniq}-flow-search")
+    assert found.ok and found.data["count"] == 0
+    lead = {
+        "first_name": "Omar",
+        "last_name": f"Haddad{uniq}",
+        "email": email,
+        "phone": "+1 415 555 0101",
+        "company": "Acme Corp",
+        "owner": "a.chen",
+    }
+    made = await execute(op, "crm.create_contact", lead, label=f"test-{uniq}-flow-create")
+    assert made.ok and made.acted, made.as_dict()
+    created.append(("Contact", made.record_id))
+    due = (date.today() + timedelta(days=2)).isoformat()
+    task_inputs = {"contact_id": made.record_id, "subject": f"Follow-up {uniq}", "due_date": due, "owner": "a.chen"}
+    task = await execute(op, "crm.create_task", task_inputs, label=f"test-{uniq}-flow-task")
+    assert task.ok and task.acted, task.as_dict()
+    claim = to_claim(task, worker=op.agent_id, fence=1)
+    assert claim.data["record_id"] == task.record_id and len(claim.evidence) >= 2
+    tasks = await tasks_of(admin, made.record_id)
+    created.extend(("Task", t["id"]) for t in tasks)
+    assert [t["id"] for t in tasks] == [task.record_id]
+    assert tasks[0]["assignedUserName"] == "Alex Chen"

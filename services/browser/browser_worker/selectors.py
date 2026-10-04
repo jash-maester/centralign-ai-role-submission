@@ -164,7 +164,25 @@ def autocomplete_suggestions(page: Page) -> Locator:
 
 
 def save_button(scope: Page | Locator) -> Locator:
+    if _UI_CHANGED:
+        return scope.locator("button[data-ledger-fault='ui_changed']")  # matches nothing
     return scope.get_by_role("button", name="Save", exact=True).first
+
+
+# ---- F5 fault: "the UI changed" ------------------------------------------------
+_UI_CHANGED = False
+
+
+def set_ui_changed(on: bool) -> None:
+    """Break the Save-button selector for this process (F5): skills then give up
+    with a reason after bounded recovery, and the orchestrator can replan to the
+    API skill. Off by default."""
+    global _UI_CHANGED
+    _UI_CHANGED = bool(on)
+
+
+def ui_changed() -> bool:
+    return _UI_CHANGED
 
 
 def edit_button(page: Page) -> Locator:
