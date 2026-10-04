@@ -62,6 +62,16 @@
   {
     "role": "worker",
     "schema": "EmailDraft",
+    "fixture_key": "lead:9",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Sam",
+      "body": "Hi Sam,\n\nThanks for stopping by our booth at Signal Summit. It was good to hear how the team at Lumen is planning the next quarter, and I would be glad to share how similar teams have set things up. Would you be open to a short call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
+    }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
     "fixture_key": "lead:10",
     "model": "scripted:drafter.json",
     "response": {

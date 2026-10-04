@@ -130,6 +130,7 @@ def main() -> int:
         page.evaluate("window.scrollTo(0, 0)")
         esc = page.locator("[data-testid=escalation]", has_text="Sam")
         esc.first.wait_for(timeout=int(TIMEOUT_S * 1000))
+        esc.first.scroll_into_view_if_needed()
         time.sleep(1)
         shot(page, "05-escalation-sam-ito")
         card = esc.first
@@ -175,7 +176,10 @@ def main() -> int:
         time.sleep(2)
         text = page.inner_text("[data-testid=report]")
         assert "Evidence report" in text, "report heading"
-        shot(page, "08-report", full=True)
+        assert "Sam Ito" in text, "every row is listed"
+        page.set_viewport_size({"width": 1440, "height": 5200})
+        time.sleep(1)
+        shot(page, "08-report")
         md_btn = page.locator("[data-testid=report] button", has_text=re.compile("markdown|\\.md|Export", re.I))
         if md_btn.count():
             with page.expect_download(timeout=15000) as dl:
