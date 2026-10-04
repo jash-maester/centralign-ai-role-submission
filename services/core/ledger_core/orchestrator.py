@@ -420,8 +420,9 @@ class Orchestrator:
 
     async def _progress(self, run: Run) -> Run:
         cfg = await self._config(run)
+        basis: list[Step] = []
         for _ in range(6):  # each round may unlock the next; bounded
-            steps = await ledger.list_steps(self.r, self.keys, run.id)
+            steps = basis = await ledger.list_steps(self.r, self.keys, run.id)
             facts = await ledger.get_facts(self.r, self.keys, run.id)
             changed = await self._fan_out(run, steps, facts, cfg)
             changed |= await self._advance_lanes(run, steps, facts, cfg)
@@ -438,7 +439,7 @@ class Orchestrator:
             changed |= bool(await self._release(run, steps))
             if not changed:
                 break
-        return await self._maybe_finish(run, cfg)
+        return await self._maybe_finish(run, cfg, basis=_fingerprint(basis))
 
     async def _fan_out(self, run: Run, steps: list[Step], facts: dict[str, Any], cfg: RunConfig) -> bool:
         parse = latest(steps, StepKind.FILE_PARSE, status=S.COMMITTED)
@@ -588,9 +589,15 @@ class Orchestrator:
         return CheckContext(run_id=run.id, facts=facts, crm=self._crm, data_dir=get_settings().data_dir,
                             extra={"run": run})
 
-    async def _maybe_finish(self, run: Run, cfg: RunConfig) -> Run:
+    async def _maybe_finish(self, run: Run, cfg: RunConfig, *, basis: str | None = None) -> Run:
         steps = await ledger.list_steps(self.r, self.keys, run.id)
         if not steps:
+            return run
+        if basis is not None and _fingerprint(steps) != basis:
+            # Track M race fix: a step changed (e.g. the parse committed) after this
+            # round's fan-out / lane decisions read the ledger. Finishing now would
+            # judge the run on state nobody acted on (a run "completed" with zero
+            # lanes); the next tick progresses it with fresh state first.
             return run
         waiting, moving = await self.waiting_and_moving(steps)
         if moving:
@@ -598,7 +605,7 @@ class Orchestrator:
                 run = await ledger.set_run_status(self.r, self.keys, run.id, RunStatus.RUNNING, actor=self.agent_id,
                                                   reason="work resumed")
             return run
-        fingerprint = hashlib.sha256(json.dumps(sorted((s.id, s.status.value) for s in steps)).encode()).hexdigest()
+        fingerprint = _fingerprint(steps)
         if run.status == RunStatus.COMPLETED_PENDING_INPUT and self._last_finish.get(run.id) == fingerprint:
             return run
         self._last_finish[run.id] = fingerprint
@@ -665,3 +672,8 @@ def is_finished(run: Run) -> bool:
 
 
 __all__ = ["Orchestrator", "submit_goal", "orchestrator_card", "is_finished", "TERMINAL_STATUSES"]
+
+
+def _fingerprint(steps: list[Step]) -> str:
+    """Digest of (step id, status) for a run's steps."""
+    return hashlib.sha256(json.dumps(sorted((s.id, s.status.value) for s in steps)).encode()).hexdigest()
