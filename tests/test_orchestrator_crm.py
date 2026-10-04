@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from crm_helpers import admin_client, crm_secrets  # noqa: F401 - fixture
 
 from ledger_core import ledger, llm
 from ledger_core.llm_scripted import ScriptedBackend
@@ -19,6 +18,8 @@ from ledger_core.orchestrator import Orchestrator, submit_goal
 from ledger_core.orchestrator_lanes import lane_outcomes
 from ledger_core.orchestrator_local import api_worker, drafter_worker, local_verifier, parser_worker
 from ledger_core.protocol import EventType, RunStatus, StepKind, StepStatus
+
+from crm_helpers import admin_client, crm_secrets  # noqa: F401 - fixture
 
 pytestmark = pytest.mark.crm
 

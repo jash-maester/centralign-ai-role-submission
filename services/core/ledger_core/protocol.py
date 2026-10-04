@@ -384,7 +384,8 @@ class ReviewOption(BaseModel):
 
 
 class ReviewDecision(BaseModel):
-    decision: Literal["link_account", "match_existing", "create_new", "skip", "approve", "reject"]
+    # "manual" (Track N, additive): a human took over a lane whose step went dead
+    decision: Literal["link_account", "match_existing", "create_new", "skip", "approve", "reject", "manual"]
     value: str | None = None
     confidence: float
     threshold: float

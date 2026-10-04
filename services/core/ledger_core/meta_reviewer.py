@@ -23,13 +23,19 @@ review.ambiguity
      Below: escalations.escalate() -> input_required + review.escalated +
      input.requested + an Escalation on queue:human. Only that lane waits.
 
-review.approval (Track K's email batch)
+review.approval (Track K's email batch; per email since Track N)
   inputs.drafts = [{id, lane?, to, subject, body, checks_ok?, check_reason?}]
-  Approve when every draft passed its deterministic checks (and has no
-  placeholders / policy flags here), the batch judge (judge.judge_drafts, one
-  LLM call) gives min score >= approval_auto_threshold with no flags,
-  llm_judge_enabled is on and always_ask_human_email is off -> fact
-  `approval:<lane|key>` + approval.auto. Otherwise escalate (approve / reject).
+  (or Track K's inputs.items). Each draft is approved on its own when it passed
+  its deterministic checks (no placeholders / policy flags), the batch judge
+  (judge.judge_drafts, ONE LLM call) scores it >= approval_auto_threshold with
+  no flags, llm_judge_enabled is on and always_ask_human_email is off -> fact
+  `approval:<lane>`. The batch always resolves (approval.auto; decision
+  approve | partial | escalate) and lists the rest under `escalated`; the
+  orchestrator gives each of those its own review.approval step (lane set,
+  inputs.prejudged), which this reviewer escalates without another judge call.
+
+human.decide (Track N): a lane step that went dead (orchestrator_handoff) is
+always escalated with what was tried (options manual / skip), never decided.
 
 A step that comes back after a human answer (inputs.human_decision) is
 claimed with that decision, no LLM call. Every decision records confidence,
@@ -74,7 +80,8 @@ def meta_reviewer_card(agent_id: str = "meta-reviewer") -> AgentCard:
     return AgentCard.model_validate({
         "id": agent_id, "name": "Meta-reviewer", "role": "meta_reviewer", "model_role": "meta_reviewer",
         "skills": [{"id": Skill.REVIEW.value,
-                    "kinds": [StepKind.REVIEW_AMBIGUITY.value, StepKind.REVIEW_APPROVAL.value]}],
+                    "kinds": [StepKind.REVIEW_AMBIGUITY.value, StepKind.REVIEW_APPROVAL.value,
+                              StepKind.HUMAN_DECIDE.value]}],
         "side_effects": False, "container": "meta-reviewer",
         "tools": [
             {"id": "crm-rest", "type": "rest", "name": "EspoCRM REST (read-only key)",
@@ -193,8 +200,9 @@ async def ambiguity_evidence(inputs: dict[str, Any], crm: Any) -> tuple[list[str
                 try:
                     deals = await crm.open_opportunities_for_contact(cid)
                     tasks = await crm.tasks_for_contact(cid)
+                    owners = sorted({str(t.get('assignedUserName')) for t in tasks if t.get('assignedUserName')})
                     ev.append(f"{name}: {len(deals)} open deal(s), {len(tasks)} task(s)"
-                              + (f" owned by {', '.join(sorted({str(t.get('assignedUserName')) for t in tasks if t.get('assignedUserName')}))}"
+                              + (f" owned by {', '.join(owners)}"
                                  if tasks else ""))
                 except Exception as exc:  # noqa: BLE001
                     ev.append(f"REST: history of {cid} unreadable ({type(exc).__name__})")
@@ -317,11 +325,42 @@ async def decide_ambiguity(
                    option=opt.value if opt else None, source="llm")
 
 
-async def decide_approval(step: Step, inputs: dict[str, Any], cfg: RunConfig, *,
-                          pb: playbook.Playbook | None = None) -> Outcome:
-    from . import judge
+def _draft_problems(dr: dict[str, Any], allowed_domains: Any) -> list[str]:
+    """Deterministic reasons this one draft may not be auto-approved."""
     from .checks.email import find_placeholders, policy_flags
 
+    text = f"{dr.get('subject') or ''}\n{dr.get('body') or ''}"
+    out = []
+    if dr.get("checks_ok") is False:
+        out.append(f"deterministic check failed ({dr.get('check_reason') or 'no reason'})")
+    if not dr.get("to"):
+        out.append("no recipient")
+    if find_placeholders(text):
+        out.append("placeholder text")
+    flags = policy_flags(text, allowed_domains or ())
+    if flags:
+        out.append("policy flags " + ", ".join(f["policy"] for f in flags))
+    return out
+
+
+async def decide_approval(step: Step, inputs: dict[str, Any], cfg: RunConfig, *,
+                          pb: playbook.Playbook | None = None) -> Outcome:
+    """Decide an email approval batch PER EMAIL (Track N; approval.policy_decisions).
+
+    Each draft is auto-approved on its own when its deterministic checks pass,
+    the batch judge (ONE judge.judge_drafts call for every draft that passed)
+    scores it >= approval_auto_threshold with no flags, llm_judge_enabled is on
+    and always_ask_human_email is off. Every other draft is listed in
+    extra["escalated"] {lane: {reason, score, flags, ...}}: the orchestrator
+    gives each one its own review.approval step for that lane, which escalates
+    to a human (decide_prejudged). The batch step itself always resolves
+    (decision approve | partial | escalate), so the approved emails go out at once.
+    """
+    from . import approval as ap
+    from . import judge
+
+    if isinstance(inputs.get("prejudged"), dict):
+        return decide_prejudged(step, inputs, cfg)
     threshold = float(cfg.approval_auto_threshold)
     options = _opts(step) or [ReviewOption(label="Approve and send", value="approve"),
                               ReviewOption(label="Reject (do not send)", value="reject")]
@@ -330,23 +369,12 @@ async def decide_approval(step: Step, inputs: dict[str, Any], cfg: RunConfig, *,
         raw = [inputs["draft"]]
     if raw is None and isinstance(inputs.get("items"), list):
         raw = drafts_from_items(inputs["items"])
-    drafts = [d for d in (raw or []) if isinstance(d, dict)]
+    drafts = {str(d.get("id", i)): d for i, d in enumerate(d for d in (raw or []) if isinstance(d, dict))}
     evidence: list[str] = [f"{len(drafts)} draft(s) in the batch"]
     tried: list[str] = []
-    problems: list[str] = []
-    for i, dr in enumerate(drafts):
-        did = str(dr.get("id", i))
-        text = f"{dr.get('subject') or ''}\n{dr.get('body') or ''}"
-        if dr.get("checks_ok") is False:
-            problems.append(f"{did}: deterministic check failed ({dr.get('check_reason') or 'no reason'})")
-        if not dr.get("to"):
-            problems.append(f"{did}: no recipient")
-        if find_placeholders(text):
-            problems.append(f"{did}: placeholder text")
-        flags = policy_flags(text, inputs.get("allowed_domains") or ())
-        if flags:
-            problems.append(f"{did}: policy flags " + ", ".join(f["policy"] for f in flags))
-    evidence += problems or ["deterministic checks passed for every draft"]
+    problems = {lane: p for lane, d in drafts.items() if (p := _draft_problems(d, inputs.get("allowed_domains")))}
+    evidence += [f"{lane}: {'; '.join(p)}" for lane, p in problems.items()] or [
+        "deterministic checks passed for every draft"]
     forced = None
     if not drafts:
         forced = "no drafts to approve"
@@ -354,34 +382,89 @@ async def decide_approval(step: Step, inputs: dict[str, Any], cfg: RunConfig, *,
         forced = "always_ask_human_email is on: every external email needs a human"
     elif not cfg.llm_judge_enabled:
         forced = "llm_judge_enabled is off: no judge score to approve on"
-    elif problems:
-        forced = "deterministic checks failed"
-    scores: dict[str, float] = {}
+    judged = {lane: d for lane, d in drafts.items() if lane not in problems}
+    verdicts: dict[str, Any] = {}
     model = None
-    min_score = 0.0
-    if drafts and not cfg.always_ask_human_email and cfg.llm_judge_enabled:
-        try:
-            verdicts, model = await judge.judge_drafts(drafts, run_id=step.run_id, step_id=step.id, config=cfg)
+    judge_error = None
+    if judged and forced is None:
+        try:  # ONE call for the whole batch
+            verdicts, model = await judge.judge_drafts([{**d, "id": lane} for lane, d in judged.items()],
+                                                       run_id=step.run_id, step_id=step.id, config=cfg)
             scores = {k: round(v.score, 4) for k, v in verdicts.items()}
-            min_score = min(scores.values()) if scores else 0.0
+            tried.append(f"batch judge ({model}): {len(scores)} draft(s) scored in one call")
+            evidence.append("judge scores: " + ", ".join(f"{k} {s:.2f}" for k, s in sorted(scores.items())))
             flagged = {k: v.flags for k, v in verdicts.items() if v.flags}
-            tried.append(f"batch judge ({model}): min score {min_score:.2f} over {len(scores)} draft(s)")
-            evidence.append(f"judge scores: " + ", ".join(f"{k} {s:.2f}" for k, s in sorted(scores.items())))
             if flagged:
-                forced = forced or "judge raised policy flags"
                 evidence.append("judge flags: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in flagged.items()))
         except llm.LLMError as exc:
-            forced = forced or "judge unavailable"
+            judge_error = f"judge unavailable ({type(exc).__name__})"
             tried.append(f"batch judge unavailable ({type(exc).__name__})")
-    auto = forced is None and min_score >= threshold
-    dec = "approve" if auto else ("reject" if problems else "approve")
-    d = ReviewDecision(decision=dec, value=None, confidence=round(min_score, 4), threshold=threshold,
+    per, _ = ap.policy_decisions(judged, verdicts, cfg, model=model)
+    items: dict[str, dict[str, Any]] = {}
+    escalated: dict[str, dict[str, Any]] = {}
+    for lane, d in drafts.items():
+        rec = per.get(lane) or {"draft_step": d.get("draft_step"), "to": d.get("to"), "subject": d.get("subject"),
+                                 "score": None, "flags": [], "threshold": threshold, "decided_by": "meta-reviewer",
+                                 "model": model, "reasoning": None, "decision": None}
+        reason = forced or ("; ".join(problems[lane]) if lane in problems else None) or \
+            (judge_error if rec.get("decision") is None and rec.get("score") is None else None)
+        if reason:
+            rec.update(decision=None, reason=reason)
+        if rec.get("decision") == ap.APPROVE:
+            items[lane] = {**rec, "source": "judge"}
+        else:
+            escalated[lane] = {**rec, "decision": None, "reason": rec.get("reason") or "below threshold"}
+    approved = sorted(items)
+    scores = {lane: rec["score"] for lane, rec in {**items, **escalated}.items() if rec.get("score") is not None}
+    for lane, rec in sorted(escalated.items()):
+        tried.append(f"{lane}: {rec['reason']} -> escalated on its own")
+    batch = "approve" if approved and not escalated else ("partial" if approved else "escalate")
+    conf = min((items[x]["score"] for x in approved), default=0.0)
+    d = ReviewDecision(decision="approve", value=None, confidence=round(conf, 4), threshold=threshold,
                        evidence=evidence, options=options, decided_by="meta-reviewer", model=model)
     if forced:
         tried.append(f"policy: {forced}")
-    return Outcome(d, auto, tried=tried, forced_reason=forced, option=dec,
-                   label=next((o.label for o in options if o.value == dec), None), source="judge",
-                   extra={"scores": scores, "drafts": [str(x.get("id", i)) for i, x in enumerate(drafts)]})
+    return Outcome(d, True, tried=tried, option="approve", label=f"{len(approved)} approved, "
+                   f"{len(escalated)} escalated per email", source="judge",
+                   extra={"scores": scores, "drafts": list(drafts), "items": items, "escalated": escalated,
+                          "batch_decision": batch, "policy": forced})
+
+
+def decide_prejudged(step: Step, inputs: dict[str, Any], cfg: RunConfig) -> Outcome:
+    """One email the batch could not auto-approve (its own review.approval step,
+    lane set, inputs.prejudged from the batch): escalate it with what was tried.
+    No second judge call."""
+    pre = inputs["prejudged"]
+    threshold = float(cfg.approval_auto_threshold)
+    options = _opts(step) or [ReviewOption(label="Approve and send", value="approve"),
+                              ReviewOption(label="Reject (do not send)", value="reject")]
+    score = pre.get("score")
+    evidence = [f"batch {pre.get('batch_step') or ''}: {pre.get('reason') or 'not auto-approved'}".strip()]
+    if score is not None:
+        evidence.append(f"judge ({pre.get('model') or 'judge'}) scored {float(score):.2f}, threshold {threshold:.2f}")
+    if pre.get("flags"):
+        evidence.append("flags: " + ", ".join(map(str, pre["flags"])))
+    if pre.get("reasoning"):
+        evidence.append(f"judge: {pre['reasoning']}")
+    d = ReviewDecision(decision="approve", value=None, confidence=round(float(score or 0.0), 4), threshold=threshold,
+                       evidence=evidence, options=options, decided_by="meta-reviewer", model=pre.get("model"))
+    tried = [f"batch judge: {pre.get('reason') or 'not auto-approved'}", "policy: this email needs a human"]
+    return Outcome(d, False, tried=tried, forced_reason=str(pre.get("reason") or "not auto-approved"),
+                   option="approve", label=next((o.label for o in options if o.value == "approve"), None),
+                   source="judge", extra={"drafts": [step.lane] if step.lane else []})
+
+
+def decide_handoff(step: Step, cfg: RunConfig) -> Outcome:
+    """human.decide (Track N, orchestrator_handoff): a lane step went dead.
+    Never decided automatically: escalate with every attempt that was tried."""
+    inputs = step.inputs
+    tried = [str(t) for t in inputs.get("tried") or []]
+    evidence = [f"{inputs.get('dead_kind') or 'step'} {inputs.get('dead_step')} is dead: "
+                f"{inputs.get('last_error') or 'max attempts used'}"] + tried
+    d = ReviewDecision(decision="skip", value=None, confidence=0.0, threshold=float(cfg.review_auto_threshold),
+                       evidence=evidence, options=_opts(step), decided_by="meta-reviewer", model=None)
+    return Outcome(d, False, tried=tried + ["policy: a dead lane step is handed to a human, never guessed"],
+                   forced_reason="lane step dead after its attempts", source="policy")
 
 
 def drafts_from_items(items: list[Any]) -> list[dict[str, Any]]:
@@ -448,6 +531,8 @@ class MetaReviewer(Worker):
         human = human_outcome(step)
         if human is not None:
             return human
+        if step.kind == StepKind.HUMAN_DECIDE:
+            return decide_handoff(step, cfg)
         inputs = await ledger.resolve_inputs(self.r, self.keys, step, strict=False)
         run = await ledger.get_run(self.r, self.keys, step.run_id)
         pb = _pb(run.playbook if run else None, self.playbook_dir)
@@ -479,7 +564,9 @@ class MetaReviewer(Worker):
         rec = out.record()
         key = escalations.decision_key(step)
         approval = step.kind == StepKind.REVIEW_APPROVAL
-        if approval:
+        if approval and out.source != "human" and "items" in out.extra:
+            rec = await self._commit_per_email(step, rec, out)
+        elif approval:
             rec = await self._approval_items(step, rec)
             if out.source == "human":  # re-commit the human record with the per-email items
                 await ledger.commit_fact(self.r, self.keys, step.run_id, key, rec, source_step=step.id,
@@ -496,6 +583,9 @@ class MetaReviewer(Worker):
                    f"(confidence {d.confidence:.2f} >= {d.threshold:.2f}, {out.source})")
         if out.source == "human":
             summary = f"{d.decision}{' ' + (out.label or str(d.value)) if (out.label or d.value) else ''} (human answer)"
+        elif "batch_decision" in out.extra:
+            summary = (f"{rec.get('decision')}: {len(out.extra['items'])} approved (judge >= {d.threshold:.2f}), "
+                       f"{len(out.extra['escalated'])} escalated per email")
         claim_data = {**rec, "value": out.option or rec.get("value"), "fact": key}
         try:
             await ledger.claim(self.r, self.keys, step.id, Claim(worker=self.agent_id, fence=fence, summary=summary,
@@ -505,6 +595,29 @@ class MetaReviewer(Worker):
             log.warning("%s: claim for %s refused: %s", self.agent_id, step.id, exc)
             return "claim_refused"
         return "resolved"
+
+    async def _commit_per_email(self, step: Step, rec: dict[str, Any], out: Outcome) -> dict[str, Any]:
+        """Track N: commit `approval:<lane>` for every email the batch approved
+        on its own merits; the batch record (`approval:emails`) lists them with
+        the emails escalated one by one (`escalated` {lane: reason, score, ...})."""
+        from . import approval as ap
+
+        items: dict[str, dict[str, Any]] = out.extra["items"]
+        escalated: dict[str, dict[str, Any]] = out.extra["escalated"]
+        for lane, per in sorted(items.items()):
+            await ledger.commit_fact(self.r, self.keys, step.run_id, ap.approval_key(lane),
+                                     {**per, "lane": lane, "step": step.id, "confidence": per.get("score")},
+                                     source_step=step.id, actor=self.agent_id)
+        facts = await ledger.get_facts(self.r, self.keys, step.run_id)
+        merged = {k.split(":", 1)[1]: v for k, v in facts.items()
+                  if k.startswith("approval:") and k != ap.BATCH_KEY and isinstance(v, dict)}
+        batch = ap.batch_record(merged, decided_by="meta-reviewer", step_id=step.id, model=rec.get("model"),
+                                threshold=rec.get("threshold"))
+        decision = out.extra["batch_decision"]
+        out.option = decision
+        return {**rec, "decision": decision, "option": decision, "value": None, "items": batch["items"],
+                "approved": batch["approved"], "rejected": batch["rejected"], "lanes": sorted(items),
+                "escalated": escalated, "batch_decision": decision, "step": step.id}
 
     async def _approval_items(self, step: Step, rec: dict[str, Any]) -> dict[str, Any]:
         """W3 integration with Track K (approval.py): a batch decision becomes one
@@ -536,6 +649,16 @@ class MetaReviewer(Worker):
                   if k.startswith("approval:") and k != ap.BATCH_KEY and isinstance(v, dict)}
         batch = ap.batch_record(merged, decided_by=str(rec.get("decided_by") or "meta-reviewer"), step_id=step.id,
                                 model=rec.get("model"), threshold=rec.get("threshold"))
+        if step.lane and escalations.decision_key(step) == ap.approval_key(step.lane) != ap.BATCH_KEY:
+            # Track N: one email escalated on its own: its decision key IS approval:<lane>,
+            # so keep that fact pinned (to, subject, draft step) and refresh the batch record.
+            prev = facts.get(ap.BATCH_KEY) if isinstance(facts.get(ap.BATCH_KEY), dict) else {}
+            await ledger.commit_fact(self.r, self.keys, step.run_id, ap.BATCH_KEY, {
+                **prev, "items": batch["items"], "approved": batch["approved"], "rejected": batch["rejected"],
+                "escalated": {k: v for k, v in (prev.get("escalated") or {}).items() if k not in merged},
+            }, source_step=step.id, actor=self.agent_id)
+            return {**rec, **{k: v for k, v in merged.get(step.lane, {}).items() if k in (
+                "lane", "draft_step", "to", "subject", "score", "flags")}, "lanes": [step.lane]}
         return {**rec, "items": batch["items"], "approved": batch["approved"], "rejected": batch["rejected"],
                 "lanes": [it["lane"] for it in items], "batch_decision": batch["decision"]}
 

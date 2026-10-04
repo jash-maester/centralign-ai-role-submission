@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     model_worker: str = ""
     model_verifier: str = ""
     model_meta_reviewer: str = ""
-    llm_daily_request_budget: int = 45
+    llm_daily_request_budget: int = 45  # local fallback cap (no key / OpenRouter unreachable)
+    llm_budget_reserve: int = 3  # OpenRouter free requests never spent (llm_budget.py)
     llm_cache: str = "on"  # on | off | replay-only
     llm_live_tests: bool = False
     # Track D (additive): backend selection, cache location, scripted fixtures.

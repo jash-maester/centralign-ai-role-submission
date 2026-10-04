@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from urllib.parse import parse_qs, urlsplit
 from typing import Any, Literal
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Locator

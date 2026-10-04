@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 
 import pytest
-from ledger_helpers import CSV, S, drive_to, new_step
 
 from ledger_core import ledger, postconditions
 from ledger_core.events import read_events
@@ -13,6 +12,8 @@ from ledger_core.postconditions import CheckContext, CheckResult
 from ledger_core.protocol import Claim, EventType, Postcondition, StepKind
 from ledger_core.verifier import Verifier, default_context, facts_from_claim
 from ledger_core.workers.parser import parse_file
+
+from ledger_helpers import CSV, S, drive_to, new_step
 
 postconditions.load_all()
 

@@ -13,7 +13,7 @@ ctx.crm, committed facts), never through worker claims.
 (orchestrator_lanes.lane_outcomes):
 
     {"lane": "lead:3", "row": 3, "name": ..., "email": ...,
-     "status": "done" | "skipped" | "waiting" | "in_progress" | "failed",
+     "status": "done" | "skipped" | "waiting" | "in_progress" | "failed" | "handed_off",
      "action": "created" | "updated" | ..., "contact_id": ..., "owner": <expected owner or None>,
      "emails": [<lead email>], "task": {"subject", "due", "owner"} | None,
      "review": {"kind", "status", "decision"} | None,
@@ -70,8 +70,9 @@ def register_criterion(check: str) -> Callable[[Evaluator], Evaluator]:
 
 
 def _lanes_with_contact(lanes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Lanes that should end with a CRM contact (not skipped)."""
-    return [x for x in lanes if x.get("status") != "skipped"]
+    """Lanes that should end with a CRM contact (not skipped, not handed to a
+    human after a dead CRM step: Track N)."""
+    return [x for x in lanes if x.get("status") not in ("skipped", "handed_off")]
 
 
 async def _sweep_per_lane(

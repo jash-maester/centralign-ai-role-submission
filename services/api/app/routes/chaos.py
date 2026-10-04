@@ -5,7 +5,14 @@ Workers consume a shot when they hit the fault and emit fault.injected with
 phase=consumed (worker_base.take_fault_shot).
 
 Body (all optional): {"shots": n | "on", "skill": "...", "agent_id": "...",
-"run_id": "...", "kill": bool}.
+"run_id": "...", "kill": bool}; `?run_id=` works too (query wins).
+
+Which run the injection belongs to (Track N): the given run_id; else the most
+recent run that is in flight (created / understanding / planning / running;
+never one that is completed_pending_input or finished); else none: the switch
+is armed and the injection recorded as pending (Keys.faults_pending), and the
+first run whose worker consumes the shot gets the injection on its timeline
+(faults.attach_pending, fault.injected phase=injected attached=true).
 - false_claim defaults to the next browser step (field false_claim:browser.espocrm);
   pass skill="" for any skill.
 - kill_worker records the event; with agent_id it also kills that agent's
@@ -18,12 +25,13 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from ledger_core import faults, ledger
 from ledger_core.events import append_event
 from ledger_core.keys import Keys
-from ledger_core.protocol import AgentCard, Event, EventType, FaultName, Skill
+from ledger_core.protocol import AgentCard, Event, EventType, FaultName, RunStatus, Skill
 
 from .. import docker_ops
 from ..deps import get_keys, get_r
@@ -47,9 +55,16 @@ def _field(fault: FaultName, skill: str | None) -> str:
     return f"{fault.value}:{skill}" if skill else fault.value
 
 
+IN_FLIGHT = frozenset({RunStatus.CREATED, RunStatus.UNDERSTANDING, RunStatus.PLANNING, RunStatus.RUNNING})
+
+
 async def _latest_running_run(r, keys: Keys) -> str | None:
-    ids = await r.zrevrange(keys.runs, 0, 0)
-    return ids[0] if ids else None
+    """The most recent run still in flight (a completed_pending_input run only
+    waits on a human: a fault injected now would hit the next run instead)."""
+    for run in await ledger.list_runs(r, keys, limit=50):
+        if run.status in IN_FLIGHT:
+            return run.id
+    return None
 
 
 @router.get("/chaos")
@@ -64,13 +79,14 @@ async def clear_fault(fault: FaultName, r=Depends(get_r), keys: Keys = Depends(g
     gone = [f for f in armed if f == fault.value or f.startswith(f"{fault.value}:")]
     if gone:
         await r.hdel(keys.faults, *gone)
+    await r.hdel(keys.faults_pending, fault.value)
     return {"cleared": gone}
 
 
 async def _leases_held(r, keys: Keys, agent_id: str, run_id: str | None) -> list[str]:
     if not run_id:
         return []
-    from ledger_core import ledger, leases
+    from ledger_core import leases, ledger
     from ledger_core.protocol import StepStatus
 
     out = []
@@ -81,17 +97,21 @@ async def _leases_held(r, keys: Keys, agent_id: str, run_id: str | None) -> list
 
 
 @router.post("/chaos/{fault}")
-async def inject(fault: FaultName, body: FaultBody | None = None, r=Depends(get_r),
-                 keys: Keys = Depends(get_keys)) -> dict[str, Any]:
+async def inject(fault: FaultName, body: FaultBody | None = None, run_id: str | None = Query(None),
+                 r=Depends(get_r), keys: Keys = Depends(get_keys)) -> dict[str, Any]:
     body = body or FaultBody()
     shots = body.shots
     if isinstance(shots, str) and shots != "on":
         raise HTTPException(422, "shots must be a positive integer or 'on'")
     if isinstance(shots, int) and shots < 1:
         raise HTTPException(422, "shots must be >= 1")
-    run_id = body.run_id or await _latest_running_run(r, keys)
-    payload: dict[str, Any] = {"fault": fault.value, "phase": "injected"}
-    result: dict[str, Any] = {"fault": fault.value, "run_id": run_id}
+    explicit = run_id or body.run_id
+    if explicit and await ledger.get_run(r, keys, explicit) is None:
+        raise HTTPException(404, f"run {explicit} not found")
+    run_id = explicit or await _latest_running_run(r, keys)
+    pending = run_id is None and fault != FaultName.KILL_WORKER
+    payload: dict[str, Any] = {"fault": fault.value, "phase": "injected", "pending": pending}
+    result: dict[str, Any] = {"fault": fault.value, "run_id": run_id, "pending": pending}
 
     if fault == FaultName.KILL_WORKER:
         if not body.agent_id:
@@ -119,4 +139,6 @@ async def inject(fault: FaultName, body: FaultBody | None = None, r=Depends(get_
 
     ev = Event(run_id=run_id, actor="chaos", type=EventType.FAULT_INJECTED, payload=payload)
     result["event_id"] = await append_event(r, keys, ev)
+    if pending:  # no run in flight: the next run that consumes the shot gets it
+        await faults.mark_pending(r, keys, fault, event_id=result["event_id"], payload=payload)
     return result

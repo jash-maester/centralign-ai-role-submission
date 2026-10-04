@@ -82,12 +82,40 @@ async def review_decided(args: dict[str, Any], expect: dict[str, Any], ctx: Chec
     observed["run_threshold"] = threshold
     if fact.get("forced_reason"):
         return CheckResult(False, f"auto decision despite a forced escalation: {fact['forced_reason']}", observed)
+    if approval and isinstance(fact.get("escalated"), dict):
+        return _per_email(fact, cfg, threshold, observed)
     if approval and (cfg.always_ask_human_email or not cfg.llm_judge_enabled):
         return CheckResult(False, "approval needs a human (always_ask_human_email / judge off)", observed)
     if conf < threshold:
         return CheckResult(False, f"confidence {conf:.2f} < threshold {threshold:.2f}: must escalate", observed)
     return CheckResult(True, f"{by} decided {f_dec}{':' + f_val if f_val else ''} at confidence {conf:.2f} "
                              f">= {threshold:.2f}", observed)
+
+
+def _per_email(fact: dict[str, Any], cfg: RunConfig, threshold: float, observed: dict[str, Any]) -> CheckResult:
+    """Track N: an approval batch decided per email. Every email this step
+    auto-approved (fact `lanes`) must have its own judge score >= the run's
+    approval_auto_threshold and no flags, with the judge on and
+    always_ask_human_email off; the others are listed as escalated (each gets
+    its own review.approval step) and none of them may be approved here."""
+    items = fact.get("items") or {}
+    lanes = list(fact.get("lanes") or [])
+    escalated = fact.get("escalated") or {}
+    approved = [x for x in lanes if (items.get(x) or {}).get("decision") == "approve"]
+    observed.update(auto_approved=approved, escalated=sorted(escalated))
+    if approved and (cfg.always_ask_human_email or not cfg.llm_judge_enabled):
+        return CheckResult(False, "approval needs a human (always_ask_human_email / judge off)", observed)
+    for lane in approved:
+        rec = items[lane]
+        score = rec.get("score")
+        if score is None or float(score) < threshold or rec.get("flags"):
+            return CheckResult(False, f"{lane} auto-approved with judge {score} (flags {rec.get('flags') or []}) "
+                                      f"below threshold {threshold:.2f}: must escalate", observed)
+    both = sorted(set(approved) & set(escalated))
+    if both:
+        return CheckResult(False, f"{', '.join(both)} both approved and escalated", observed)
+    return CheckResult(True, f"{len(approved)} email(s) auto-approved, each judged >= {threshold:.2f} with no flags; "
+                             f"{len(escalated)} escalated one by one", observed)
 
 
 def _review_facts(step: Step, claim: Claim, result: CheckResult) -> dict[str, Any]:

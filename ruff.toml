@@ -1,0 +1,24 @@
+# `make lint`: ruff check on services/ and tests/ inside the test image.
+# Minimal on purpose: real bugs (pyflakes, bugbear), pycodestyle errors and
+# import order; style beyond that is left to review.
+target-version = "py312"
+line-length = 130
+extend-exclude = ["web", ".cache"]
+
+[lint]
+select = ["E", "W", "F", "I", "B"]
+ignore = [
+  "B008",  # FastAPI's Depends()/Query() in argument defaults is the framework's idiom
+  "B904",  # `raise ... from` inside except: not enforced (HTTPException mapping)
+  "E731",  # small lambdas assigned in tests
+]
+
+[lint.per-file-ignores]
+"tests/**" = [
+  "E402",  # pytest.importorskip() before the imports that need the package
+  "F811",  # a fixture imported from another test module, then named as a test argument
+]
+
+[lint.isort]
+known-first-party = ["ledger_core", "app", "browser_worker"]
+known-local-folder = ["api_helpers", "crm_helpers", "ledger_helpers", "test_*"]

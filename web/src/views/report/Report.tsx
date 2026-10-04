@@ -118,7 +118,8 @@ export default function ReportView() {
 
   const r = report;
   const rv = runVisual(r.status);
-  const autoN = r.decisions.filter((d) => d.decided_by !== 'you' && !d.escalated).length;
+  // an open decision (not committed yet) is never "decided automatically"
+  const autoN = r.decisions.filter((d) => (d.state ? d.state === 'auto' : d.decided_by !== 'you' && !d.escalated)).length;
   const sent = r.emails.filter((e) => /^sent/.test(e.delivery)).length;
   const lost = r.totals?.lost_s ?? r.faults.reduce((n, f) => n + (f.lost_s ?? 0), 0);
   const dups = r.totals?.duplicates ?? 0;

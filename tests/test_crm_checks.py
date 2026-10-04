@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from crm_helpers import *  # noqa: F403
 from ledger_core.postconditions import REGISTRY, CheckContext, load_all, run_check
+
+from crm_helpers import *  # noqa: F403
 
 pytestmark = pytest.mark.crm
 

@@ -77,9 +77,12 @@ ROLE_INSTRUCTIONS: dict[str, str] = {
 
 SKILL_INSTRUCTIONS: dict[str, str] = {
     "file.parse": "Skill file.parse: normalise rows exactly as the dedupe rules say; flag rows you cannot use and say why.",
-    "browser.espocrm": "Skill browser.espocrm: act in the EspoCRM web UI. Check before acting: if the record already exists, do not create it again.",
-    "api.espocrm": "Skill api.espocrm: act through the EspoCRM REST API. Check before acting: if the record already exists, do not create it again.",
-    "email.draft": "Skill email.draft: write the follow-up email from the template and tone rules. Fill every merge field; never leave placeholder text.",
+    "browser.espocrm": ("Skill browser.espocrm: act in the EspoCRM web UI. Check before acting: if the record "
+                        "already exists, do not create it again."),
+    "api.espocrm": ("Skill api.espocrm: act through the EspoCRM REST API. Check before acting: if the record "
+                    "already exists, do not create it again."),
+    "email.draft": ("Skill email.draft: write the follow-up email from the template and tone rules. Fill every "
+                    "merge field; never leave placeholder text."),
     "email.send": "Skill email.send: send only an approved draft, unchanged, to the approved recipient.",
     "review": "Skill review: choose one of the options given, with your confidence and the evidence for it.",
     "human": "Skill human: present the question, the options and what was tried, briefly.",

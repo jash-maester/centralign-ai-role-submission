@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from ledger_helpers import S, a_claim, a_verdict, drive_to, lease, new_run, new_step
 
 from ledger_core import bus, leases, ledger
 from ledger_core.events import read_events
 from ledger_core.protocol import LEGAL_TRANSITIONS, VERIFIER_ONLY_STATUSES, Envelope, EventType, StepStatus
+
+from ledger_helpers import S, a_claim, a_verdict, drive_to, lease, new_run, new_step
 
 LEGAL = [(src, dst) for src, dsts in LEGAL_TRANSITIONS.items() for dst in sorted(dsts)]
 ILLEGAL = [(src, dst) for src in StepStatus for dst in StepStatus if dst not in LEGAL_TRANSITIONS[src]]

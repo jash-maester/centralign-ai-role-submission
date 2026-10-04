@@ -21,7 +21,10 @@ the orchestrator releases them when their dependencies commit.
    take), ONE `review.approval` step (skill review, lane None) is created for
    all drafts not yet covered (normally exactly one per run; a lane resolved
    later by a human gets a second, smaller batch). The meta-reviewer decides
-   it (approval.py documents the facts).
+   it per email (approval.py documents the facts): emails that clear the
+   policy are approved at once; each one that does not gets its own
+   `review.approval` step for its lane (inputs.prejudged: the batch's reason
+   and score, no second judge call), which escalates to a human (Track N).
 3. Sends. For every lane whose committed approval fact says approve, one
    `email.send` step (skill email.send, depends on the draft and the approval
    step), postcondition `email.sent` (Mailpit, exactly once).
@@ -261,8 +264,8 @@ def approval_step(run: Run, drafts: list[Step], cfg: RunConfig, event_name: str,
                     {"label": "Reject", "value": "reject", "detail": "send nothing; the owners follow up"}],
         "policy": ("Approve a draft only when its deterministic checks passed (right recipient, merge fields, "
                    "no placeholders, <= 120 words) and the tone judge scores it >= approval_auto_threshold with "
-                   "no policy flags (pricing, promises, attachments, links); otherwise escalate. Judge the whole "
-                   "batch in one judge.judge_drafts() call. Commit approval:<lane> per email and "
+                   "no policy flags (pricing, promises, attachments, links); otherwise that email alone escalates. "
+                   "Judge the whole batch in one judge.judge_drafts() call. Commit approval:<lane> per email and "
                    f"{approval.BATCH_KEY} (approval.commit_decisions)."),
         "context": {"event": event_name, "not_emailed": excluded},
     }
@@ -310,17 +313,81 @@ def _send_stage(run: Run, steps: list[Step], facts: dict[str, Any], cfg: RunConf
     new: list[Step] = []
     sending = {s.lane for s in steps if s.kind == K.EMAIL_SEND}
     drafts = {s.id: s for s in steps if s.kind == K.EMAIL_DRAFT and s.status == S.COMMITTED}
-    for appr in steps:
+    # Per lane, the newest approval step covering it decides (Track N: an email the
+    # batch escalated has its own, newer review.approval step; the send waits on it).
+    latest_for: dict[str, tuple[Step, dict[str, Any]]] = {}
+    for appr in sorted(steps, key=lambda s: s.created_at):
         if appr.kind != K.REVIEW_APPROVAL or appr.status in (S.REPLANNED, S.DEAD):
             continue
         for it in appr.inputs.get("items") or []:
-            lane, draft = it.get("lane"), drafts.get(it.get("draft_step"))
-            if not lane or lane in sending or draft is None:
+            if isinstance(it, dict) and it.get("lane"):
+                latest_for[it["lane"]] = (appr, it)
+    for lane, (appr, it) in sorted(latest_for.items()):
+        draft = drafts.get(it.get("draft_step"))
+        if lane in sending or draft is None:
+            continue
+        rec = approval.approval_for(facts, lane, approval_step=appr.id)
+        if approval.is_approved(rec) and not approval.mismatch(rec, {**_out(draft), "draft_step": draft.id}):
+            new.append(send_step(run, draft, appr, rec, cfg))
+            sending.add(lane)
+    return new
+
+
+# ---------------------------------------------------------------------------
+# 2b. emails the batch escalated: one review.approval step each (Track N)
+# ---------------------------------------------------------------------------
+
+
+def escalated_lanes(appr: Step, facts: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """{lane: why} for the emails a committed approval batch did not auto-approve
+    (the meta-reviewer's claim, committed as `step:<id>`)."""
+    if appr.status != S.COMMITTED:
+        return {}
+    out = facts.get(f"step:{appr.id}")
+    if not isinstance(out, dict):
+        out = _out(appr)
+    esc = out.get("escalated")
+    return {k: v for k, v in esc.items() if isinstance(v, dict)} if isinstance(esc, dict) else {}
+
+
+def lane_approval_step(run: Run, appr: Step, item: dict[str, Any], why: dict[str, Any], cfg: RunConfig,
+                       name: str | None) -> Step:
+    lane = item["lane"]
+    to = item.get("to") or why.get("to")
+    score = why.get("score")
+    judged = f"the judge scored it {float(score):.2f}, threshold {cfg.approval_auto_threshold:.2f}" \
+        if score is not None else "it has no judge score"
+    inputs = {
+        "reason": "external_email", "kind": "email_approval", "items": [item],
+        "decision_key": approval.approval_key(lane), "threshold": cfg.approval_auto_threshold,
+        "always_ask_human": cfg.always_ask_human_email, "parent_step": appr.id,
+        "prejudged": {**why, "batch_step": appr.id},
+        "question": f"Send the follow-up email to {name or to} ({to})? Not auto-approved: "
+                    f"{why.get('reason') or 'below threshold'}; {judged}.",
+        "options": [{"label": "Approve and send", "value": "approve", "detail": "send this draft unchanged"},
+                    {"label": "Reject (do not send)", "value": "reject", "detail": "the owner follows up"}],
+    }
+    return new_step(
+        run.id, K.REVIEW_APPROVAL, cfg, lane=lane, title=f"Approve the follow-up email to {name or to}",
+        inputs=inputs, check="review.decided",
+        args={"decision_key": approval.approval_key(lane), "lanes": [lane], "kind": "approval", "lane": lane},
+        depends_on=[appr.id], idempotency_key=f"review.approval:{run.id}:{lane}:{appr.id}",
+    )
+
+
+def _lane_approval_stage(run: Run, steps: list[Step], facts: dict[str, Any], cfg: RunConfig) -> list[Step]:
+    have = {(s.inputs.get("parent_step"), s.lane) for s in steps if s.kind == K.REVIEW_APPROVAL and s.lane}
+    new: list[Step] = []
+    for appr in steps:
+        if appr.kind != K.REVIEW_APPROVAL or appr.lane:
+            continue
+        for lane, why in sorted(escalated_lanes(appr, facts).items()):
+            item = next((it for it in appr.inputs.get("items") or [] if isinstance(it, dict)
+                         and it.get("lane") == lane), None)
+            if item is None or (appr.id, lane) in have:
                 continue
-            rec = approval.approval_for(facts, lane, approval_step=appr.id)
-            if approval.is_approved(rec) and not approval.mismatch(rec, {**_out(draft), "draft_step": draft.id}):
-                new.append(send_step(run, draft, appr, rec, cfg))
-                sending.add(lane)
+            lead = facts.get(lane) if isinstance(facts.get(lane), dict) else {}
+            new.append(lane_approval_step(run, appr, item, why, cfg, lead.get("name")))
     return new
 
 
@@ -349,6 +416,12 @@ async def email_stage(orch, run: Run, steps: list[Step], facts: dict[str, Any], 
     if sends:
         await ledger.create_steps(orch.r, orch.keys, sends, actor=orch.agent_id, event_type=EventType.PLAN_REVISED,
                                   payload={"reason": "email: approved, send", "lanes": [s.lane for s in sends]})
+        return True
+    singles = _lane_approval_stage(run, steps, facts, cfg)
+    if singles:
+        await ledger.create_steps(orch.r, orch.keys, singles, actor=orch.agent_id, event_type=EventType.PLAN_REVISED,
+                                  payload={"reason": "email: not auto-approved, ask a human per email",
+                                           "lanes": [s.lane for s in singles]})
         return True
     batch = await _approval_stage(orch, run, steps, cfg, state)
     if batch:

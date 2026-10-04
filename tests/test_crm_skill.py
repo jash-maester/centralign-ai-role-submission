@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from crm_helpers import *  # noqa: F403
 from ledger_core.postconditions import CheckContext, load_all, run_check
 from ledger_core.workers.crm_api_skill import SkillInputError, handle
+
+from crm_helpers import *  # noqa: F403
 
 pytestmark = pytest.mark.crm
 
@@ -131,7 +132,8 @@ async def test_search_contact_outputs(writer, reader):
 
     # the verifier agrees with each search claim through its own read-only key
     ben_lead = {"name": "Ben Ortiz", "email": "ben.ortiz@gmail.com", "company": "Quarry Data", "phone": "(415) 555-0119"}
-    for lead_in, out in ((ben_lead, ben), (sam_lead, sam), ({"name": "marcus lee", "email": "MARCUS.LEE@ACME.COM", "company": "Acme Corp"}, marcus)):
+    marcus_lead = {"name": "marcus lee", "email": "MARCUS.LEE@ACME.COM", "company": "Acme Corp"}
+    for lead_in, out in ((ben_lead, ben), (sam_lead, sam), (marcus_lead, marcus)):
         res = await run_check("crm.lookup_matches", {"lead": lead_in}, {},
                               CheckContext(run_id="r", claim=out["data"], crm=reader))
         assert res.ok, res.reason

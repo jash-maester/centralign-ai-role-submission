@@ -6,13 +6,14 @@ import sys
 import types
 
 import pytest
-from ledger_helpers import S, new_step
 
 from ledger_core import faults, ledger
 from ledger_core.events import read_events
 from ledger_core.protocol import EventType, FaultName
 from ledger_core.verifier import Verifier
 from ledger_core.worker_base import Worker, WorkResult, take_fault_shot, worker_card
+
+from ledger_helpers import S, new_step
 
 
 async def _fault_events(r, keys):

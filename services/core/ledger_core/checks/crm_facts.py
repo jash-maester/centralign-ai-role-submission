@@ -20,8 +20,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ..protocol import Claim, Step, StepKind
 from ..postconditions import CheckResult
+from ..protocol import Claim, Step, StepKind
 from ..verifier import register_facts
 
 _LEAD_REF = re.compile(r"^fact:(lead:\d+)$")

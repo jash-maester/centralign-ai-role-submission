@@ -515,8 +515,13 @@ WAITING = frozenset({S.REVIEW_REQUIRED, S.INPUT_REQUIRED})
 
 def lane_outcome(lane: str, lane_steps: list[Step], facts: dict[str, Any], *,
                  waiting_ids: set[str] | frozenset[str] = frozenset()) -> dict[str, Any]:
-    """Summarise one lane: status done | skipped | waiting | in_progress | failed."""
-    steps = live(lane_steps)
+    """Summarise one lane: status done | skipped | waiting | in_progress | failed
+    | handed_off (Track N: a dead step handed to a human who took the lane over)."""
+    from .orchestrator_handoff import EMAIL_KINDS, covered, handoff_key, handoffs, last_reason
+
+    hand = handoffs(lane_steps)
+    hidden = covered(lane_steps)  # dead steps a human was asked about, and the handoff steps
+    steps = [s for s in live(lane_steps) if s.id not in hidden]
     row = lane_row(lane)
     lead = facts.get(lane) if isinstance(facts.get(lane), dict) else None
     if lead is None:
@@ -551,8 +556,27 @@ def lane_outcome(lane: str, lane_steps: list[Step], facts: dict[str, Any], *,
         exp = task.postcondition.expect
         out["task"] = {"subject": exp.get("subject"), "due": exp.get("due"), "owner": exp.get("owner") or out["owner"],
                        "status": task.status.value}
+    handoff = None
+    if hand:
+        dead_id, h = sorted(hand.items(), key=lambda kv: kv[1].created_at)[-1]
+        dead_step = next((s for s in lane_steps if s.id == dead_id), None)
+        hd = parse_decision(facts.get(handoff_key(lane)))
+        if hd is None and h.status == S.COMMITTED:
+            hd = parse_decision(step_output(h, facts))
+        handoff = {"step": h.id, "dead_step": dead_id, "kind": h.inputs.get("dead_kind"),
+                   "reason": (last_reason(dead_step) if dead_step else h.inputs.get("last_error")),
+                   "status": h.status.value, "decision": (hd or {}).get("decision"),
+                   "email": h.inputs.get("dead_kind") in {k.value for k in EMAIL_KINDS}}
+        out["handoff"] = handoff
     dead = [s for s in steps if s.status == S.DEAD]
-    if dead:
+    if handoff and not handoff["decision"]:
+        out["status"] = "waiting"
+        out["reason"] = f"{handoff['kind']} dead ({handoff['reason']}); waiting for you"
+    elif handoff and not handoff["email"] and not dead:
+        out["status"] = "skipped" if handoff["decision"] == "skip" else "handed_off"
+        out["reason"] = (f"{'skipped' if handoff['decision'] == 'skip' else 'handed to you'} after "
+                         f"{handoff['kind']} failed: {handoff['reason']}")
+    elif dead:
         out["status"] = "failed"
         last = dead[-1]
         out["reason"] = (last.verdict.reason if last.verdict else None) or f"{last.kind.value} dead"

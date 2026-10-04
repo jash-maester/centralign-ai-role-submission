@@ -764,7 +764,8 @@
             "create_new",
             "skip",
             "approve",
-            "reject"
+            "reject",
+            "manual"
           ],
           "title": "Decision",
           "type": "string"

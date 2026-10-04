@@ -4,8 +4,6 @@ import json
 import sys
 from pathlib import Path
 
-from pydantic import TypeAdapter
-
 from ledger_core import protocol as p
 from ledger_core.config import RunConfig
 

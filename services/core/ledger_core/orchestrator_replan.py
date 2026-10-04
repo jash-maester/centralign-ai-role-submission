@@ -75,7 +75,7 @@ async def replan_run(r: aioredis.Redis, keys: Keys, run_id: str, steps: list[Ste
                      actor: str = "orchestrator") -> list[dict[str, Any]]:
     """Apply B5 to every lane of the run. Returns one record per revision."""
     revisions: list[dict[str, Any]] = []
-    for lane, lane_steps in group_lanes(steps).items():
+    for lane_steps in group_lanes(steps).values():
         for s in lane_steps:
             if s.kind not in CRM_KINDS or _superseded(s, lane_steps):
                 continue

@@ -53,11 +53,13 @@ from typing import Any
 import redis.asyncio as aioredis
 from redis.exceptions import RedisError
 
-from . import agents, ledger, llm, playbook as playbook_mod, run_config
+from . import agents, ledger, llm, run_config
+from . import playbook as playbook_mod
 from .checks import run as run_checks
 from .config import RunConfig
 from .events import append_event
 from .keys import Keys
+from .orchestrator_handoff import hand_off_dead_lanes
 from .orchestrator_lanes import (
     REVIEW_KINDS,
     RUN_STAGES,
@@ -101,6 +103,7 @@ from .settings import get_settings
 log = logging.getLogger("ledger.orchestrator")
 
 from . import orchestrator_email  # noqa: E402,F401 - registers the email run stage (Track K)
+
 S = StepStatus
 ACTOR = "orchestrator"
 
@@ -445,6 +448,9 @@ class Orchestrator:
                 revisions = await replan_run(self.r, self.keys, run.id, steps, cfg, actor=self.agent_id)
                 changed |= bool(revisions)
                 await self._fail_orphans(steps)
+                # Track N: a lane step that is still dead (no replan) goes to a human,
+                # not down with the run
+                changed |= bool(await hand_off_dead_lanes(self.r, self.keys, run.id, cfg, actor=self.agent_id))
             steps = await ledger.list_steps(self.r, self.keys, run.id)
             changed |= bool(await self._release(run, steps))
             if not changed:

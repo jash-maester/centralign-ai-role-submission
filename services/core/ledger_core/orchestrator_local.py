@@ -26,7 +26,7 @@ from typing import Any
 
 import redis.asyncio as aioredis
 
-from . import agents, ledger
+from . import agents
 from .keys import Keys
 from .orchestrator import Orchestrator
 from .orchestrator_replan import reject_policy

@@ -9,10 +9,11 @@ import time
 import pytest
 import redis
 
-from api_helpers import api_client, sse_events
 from ledger_core.events import encode_event
 from ledger_core.protocol import Event, EventType
 from ledger_core.settings import get_settings
+
+from api_helpers import api_client, sse_events
 
 
 @pytest.fixture

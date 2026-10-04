@@ -39,6 +39,11 @@ def err(status: int, message: str = "boom") -> httpx.Response:
     return httpx.Response(status, json={"error": {"code": status, "message": message}})
 
 
+def key_info(remaining: int, limit: int = 50, credit: float | None = 5.0) -> dict:
+    return {"data": {"label": "sk-or-v1-abc...xyz", "limit_remaining": credit, "limit": 5,
+                     "free_model_daily_requests": {"used": limit - remaining, "limit": limit, "remaining": remaining}}}
+
+
 def body(call) -> dict:
     return json.loads(call.request.content)
 
@@ -67,6 +72,7 @@ def api():
             {"id": M1, "supported_parameters": ["response_format", "structured_outputs", "seed", "temperature"]},
             {"id": M2, "supported_parameters": ["temperature"]},
         ]})
+        mock.get("/key").respond(json=key_info(45))  # the budget's source of truth (llm_budget.py)
         yield mock
 
 
@@ -194,16 +200,49 @@ async def test_replay_only_miss_raises_without_http(api, make):
     assert route.call_count == 0
 
 
-async def test_budget_exhausted_refuses_before_http(api, make, r, keys):
+async def test_budget_refuses_at_the_openrouter_reserve(api, make, r, keys, settings):
+    """OpenRouter's own count is the source of truth; the reserve is never spent."""
+    api.get("/key").respond(json=key_info(3))  # reserve is 3 (settings default)
     route = api.post("/chat/completions").mock(side_effect=[ok('{"word": "b", "n": 1}')])
-    await r.set(keys.llm_budget(utc_day()), 10)
     with pytest.raises(LLMBudgetExhausted):
         await make().complete("worker", MSGS, Answer, run_id="run_b")
     assert route.call_count == 0
-    assert await r.get(keys.llm_budget(utc_day())) == "10"
     ev = next(e for e in await read_events(r, keys) if e.type == EventType.LLM_BUDGET_EXHAUSTED)
-    assert ev.payload["budget"] == 10 and ev.run_id == "run_b"
+    assert ev.payload["source"] == "openrouter" and ev.payload["remaining"] == 3 and ev.payload["reserve"] == 3
+    assert ev.payload["budget"] == 50 and ev.run_id == "run_b"
     assert EventType.MODEL_FALLBACK.value not in await types(r, keys)  # no fallback on budget
+    dump = json.dumps([e.model_dump(mode="json") for e in await read_events(r, keys)])
+    assert settings.openrouter_api_key not in dump and "sk-or-v1" not in dump  # never the key or its label
+
+
+async def test_budget_counts_requests_made_since_the_cached_fetch(api, make, r, keys):
+    key_route = api.get("/key").respond(json=key_info(5))
+    route = api.post("/chat/completions").mock(side_effect=lambda req: ok('{"word": "c", "n": 1}'))
+    backend = make()
+    for i in (1, 2):  # 5 -> 4 left: both above the reserve of 3
+        await backend.complete("worker", [{"role": "user", "content": f"call {i}"}], Answer, run_id="run_c")
+    with pytest.raises(LLMBudgetExhausted):  # 5 - 2 made since the fetch = 3 = the reserve
+        await backend.complete("worker", [{"role": "user", "content": "call 3"}], Answer, run_id="run_c")
+    assert route.call_count == 2 and key_route.call_count == 1  # /key cached for 60 s
+    assert backend.budget.counter.read() == 2  # persistent local counter
+    assert await r.get(keys.llm_budget(utc_day())) == "2"  # the stack's own (informational) counter
+
+
+async def test_budget_falls_back_to_the_persistent_local_counter(api, make, r, keys, tmp_path):
+    api.get("/key").respond(500)
+    route = api.post("/chat/completions").mock(side_effect=lambda req: ok('{"word": "l", "n": 1}'))
+    backend = make(cache_dir=str(tmp_path / "persist"))
+    await backend.complete("worker", MSGS, Answer)
+    assert backend.budget.counter.read() == 1
+    # A fresh backend (new process; Redis wiped by `down -v`) still sees the file counter.
+    await r.delete(keys.llm_budget(utc_day()))
+    backend.budget.counter.incr(n=9)  # 10 = settings.llm_daily_request_budget
+    again = make(cache_dir=str(tmp_path / "persist"))
+    with pytest.raises(LLMBudgetExhausted):
+        await again.complete("worker", [{"role": "user", "content": "other"}], Answer, run_id="run_l")
+    assert route.call_count == 1
+    ev = next(e for e in await read_events(r, keys) if e.type == EventType.LLM_BUDGET_EXHAUSTED)
+    assert ev.payload["source"] == "local" and ev.payload["used"] == 10 and ev.payload["budget"] == 10
 
 
 async def test_spend_cap_stops_new_calls(api, make, r, keys):

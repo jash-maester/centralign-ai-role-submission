@@ -445,6 +445,17 @@ approval, 8 drafts, 8 judge calls, a few browser decisions). So:
 - **Budget.** `llm.py` increments `llm:budget:{date}` before each live call
   and refuses (`llm.budget_exhausted`, treated like a model outage, no
   fallback) once `LLM_DAILY_REQUEST_BUDGET` is used.
+  **Track N:** the source of truth is now OpenRouter's own count
+  (`llm_budget.py`: `GET /api/v1/key` → `free_model_daily_requests`
+  {used, limit, remaining}, `limit_remaining` for paid models; cached 60 s,
+  plus the requests made since the fetch). A live call is refused once
+  `remaining <= LLM_BUDGET_RESERVE` (default 3). Without a key, or when the
+  check fails, a persistent per-UTC-day file counter under `LLM_CACHE_DIR/budget/`
+  (survives `make clean`) is enforced against `LLM_DAILY_REQUEST_BUDGET`. Every
+  live request increments that file; the Redis `llm:budget:{date}` key is now
+  only the stack's informational count. `GET /llm/budget` returns the same
+  numbers (`source`, `used`, `limit`, `remaining`, `reserve`, `usable`,
+  `local`, `ledger_used`, `live`), never the key.
 - **Fewer calls.** Fan-out and dependency release are deterministic code, not
   LLM calls. The email judge scores all drafts of a run in one call. Unit
   tests use the stub LLM; only the env-flagged smoke test calls OpenRouter.
@@ -668,6 +679,34 @@ hard check exists, and its verdict is recorded with its reasoning.
   scripted fixtures include `lead:9` for the drafter and the batch judge.
 - Report `decisions[]` also carry `model` and `source` (llm | rule | human | judge).
 
+### Track N notes (wiring fixes)
+
+- **Per-email approvals** (supersedes the all-or-nothing note above): the
+  meta-reviewer decides the batch per email with `approval.policy_decisions`
+  after ONE `judge_drafts` call (only drafts whose deterministic checks passed
+  are judged). Each email with judge >= `approval_auto_threshold`, no flags,
+  checks passed and `always_ask_human_email` off gets `approval:<lane>` at once;
+  the batch step always resolves (`approval:emails.decision` approve | partial |
+  escalate, `escalated` {lane: reason, score, flags}). The orchestrator gives
+  each escalated email its own `review.approval` step (lane set, decision key
+  `approval:<lane>`, `inputs.prejudged`); the meta-reviewer escalates it without
+  another judge call, so every failing email is its own Escalation tied to its
+  lane. Sends wait on the newest approval step covering their lane.
+  `review.decided` checks a per-email batch email by email.
+- **Dead lane steps** (`orchestrator_handoff.py`): a lane step that is `dead`
+  and not replanned (no other skill) no longer fails the run. The orchestrator
+  adds a `human.decide` step (skill `review`, decision key `handoff:<lane>`,
+  options `manual` / `skip`, inputs `tried` = every attempt and its verdict);
+  the meta-reviewer always escalates it. The lane is `waiting` until answered;
+  the run ends `completed_pending_input` and the report shows the lane with its
+  reason. Afterwards the dead step is left out of the sweep: an email step
+  handed off counts as handled by the human (`email.sent` lists it), a CRM step
+  makes the lane `handed_off` (manual) or `skipped`. `ReviewDecision.decision`
+  gained `manual` (additive).
+- **Report**: `decisions[].state` = auto | human | open and
+  `decision_counts` {total, auto, human, open}; the summary only counts
+  committed decisions ("4 decisions: 3 made automatically, 1 still open.").
+
 ## 9a. Agent operations
 
 - **Config:** `GET/PUT /agents/{id}/config` for prompt text (versioned),
@@ -715,7 +754,12 @@ for the orchestrator. `GET /stream`: `id` = stream id, `event` = type,
 the run's backlog is replayed first; `?from=now`, `?follow=false`, `?max_s=`.
 `POST /chaos/{fault}` sets `Keys.faults` (default 1 shot; `false_claim` is
 scoped to `browser.espocrm` unless `skill` is given) and emits
-`fault.injected` (phase `injected`); `kill_worker` kills the agent's compose
+`fault.injected` (phase `injected`); **Track N:** the injection belongs to
+`run_id` (query or body) if given, else to the most recent run in flight
+(created … running; never a `completed_pending_input` one), else it is
+`pending` (`Keys.faults_pending`) and the first run whose worker consumes the
+shot gets it on its timeline (`faults.attach_pending`: phase `injected`,
+`attached: true`, just before phase `consumed`); `make chaos-* RUN=<id>`; `kill_worker` kills the agent's compose
 container via the docker socket unless `kill: false`; its event records
 `held_steps` (the steps whose lease the agent holds, read from the lease keys;
 the heartbeat's `current_step` can lag a step) and the report pairs the kill

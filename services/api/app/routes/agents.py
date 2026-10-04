@@ -23,7 +23,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from ledger_core import agent_config, agents as agents_mod, ledger, playbook
+from ledger_core import agent_config, ledger, playbook
+from ledger_core import agents as agents_mod
 from ledger_core.events import append_event
 from ledger_core.keys import Keys
 from ledger_core.prompts import LAYER_NAMES, LAYERS, LOCKED_LAYERS, TOGGLEABLE_LAYERS, approx_tokens

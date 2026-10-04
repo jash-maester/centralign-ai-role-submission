@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..protocol import Claim, Criterion, Step, StepKind, StepStatus
 from ..postconditions import CheckContext, CheckResult
+from ..protocol import Claim, Criterion, Step, StepKind, StepStatus
 from ..verifier import register_facts
 from . import run as run_checks  # noqa: F401 - registered first, so this module's evaluators win
 from .run import FAILED, PENDING, VERIFIED, CriterionResult, register_criterion
@@ -67,11 +67,19 @@ def _exclusions(ctx: CheckContext) -> dict[str, str]:
 @register_criterion("email.sent")
 async def _email_sent(crit: Criterion, lanes: list[dict[str, Any]], ctx: CheckContext) -> CriterionResult:
     excluded = _exclusions(ctx)
-    sent, failed, pending, held, skipped = [], [], [], [], []
+    sent, failed, pending, held, skipped, by_human = [], [], [], [], [], []
     for x in lanes:
         lane, kinds = x["lane"], x.get("kinds") or {}
-        if x.get("status") == "skipped" or not x.get("email") or lane in excluded:
+        if x.get("status") in ("skipped", "handed_off") or not x.get("email") or lane in excluded:
             skipped.append(f"{lane} ({excluded.get(lane) or x.get('reason') or 'no email'})")
+            continue
+        hand = x.get("handoff") or {}
+        if hand.get("email"):  # Track N: an email step went dead and a human was asked
+            if not hand.get("decision"):
+                pending.append(lane)
+            else:
+                by_human.append(f"{lane} ({'sent manually' if hand['decision'] == 'manual' else 'skipped'} by you "
+                                f"after {hand.get('kind')} failed)")
             continue
         send, draft = kinds.get(StepKind.EMAIL_SEND.value), kinds.get(StepKind.EMAIL_DRAFT.value)
         if send == StepStatus.COMMITTED.value:
@@ -85,7 +93,8 @@ async def _email_sent(crit: Criterion, lanes: list[dict[str, Any]], ctx: CheckCo
             (held if rec and rec.get("decision") == REJECT else pending).append(lane)
         else:
             pending.append(lane)
-    obs = {"sent": sent, "failed": failed, "pending": pending, "rejected_at_approval": held, "not_emailed": skipped}
+    obs = {"sent": sent, "failed": failed, "pending": pending, "rejected_at_approval": held, "not_emailed": skipped,
+           "handled_by_human": by_human}
     if failed:
         return CriterionResult(crit.id, FAILED, "email failed for " + ", ".join(failed), obs)
     if pending:
@@ -93,5 +102,6 @@ async def _email_sent(crit: Criterion, lanes: list[dict[str, Any]], ctx: CheckCo
                                obs)
     tail = f"; not emailed per playbook: {', '.join(skipped)}" if skipped else ""
     held_s = f"; held at approval: {', '.join(held)}" if held else ""
+    human_s = f"; handled by you: {', '.join(by_human)}" if by_human else ""
     return CriterionResult(crit.id, VERIFIED, f"{len(sent)} email(s) sent, each with a committed approval"
-                           + held_s + tail, obs)
+                           + held_s + human_s + tail, obs)
