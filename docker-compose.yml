@@ -19,11 +19,13 @@ x-core: &core
     SMTP_PORT: "1025"
     MAILPIT_API_URL: http://mailpit:8025
     LLM_CACHE_DIR: /llm-cache
+    LLM_FIXTURES_DIR: /app/fixtures/llm  # scripted LLM backend (LLM_BACKEND=scripted)
   volumes:
     - ./playbooks:/app/playbooks
     - ./data:/app/data:ro
     - evidence:/evidence
     - ./.cache/llm:/llm-cache
+    - ./tests/fixtures/llm:/app/fixtures/llm:ro
   depends_on: &core-deps
     redis:
       condition: service_healthy
@@ -42,11 +44,13 @@ x-browser: &browser
     DATA_DIR: /app/data
     EVIDENCE_DIR: /evidence
     LLM_CACHE_DIR: /llm-cache
+    LLM_FIXTURES_DIR: /app/fixtures/llm
   volumes:
     - ./playbooks:/app/playbooks:ro
     - ./data:/app/data:ro
     - evidence:/evidence
     - ./.cache/llm:/llm-cache
+    - ./tests/fixtures/llm:/app/fixtures/llm:ro
   depends_on:
     redis:
       condition: service_healthy
@@ -132,6 +136,7 @@ services:
       - ./data:/app/data:ro
       - evidence:/evidence
       - ./.cache/llm:/llm-cache
+      - ./tests/fixtures/llm:/app/fixtures/llm:ro
     ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
     depends_on:
       redis:
@@ -216,6 +221,7 @@ services:
     environment:
       <<: *core-env
       PYTHONPATH: /repo/services/core:/repo/services/api
+      LLM_FIXTURES_DIR: /repo/tests/fixtures/llm
       PYTHONDONTWRITEBYTECODE: "1"
     working_dir: /repo
     volumes:

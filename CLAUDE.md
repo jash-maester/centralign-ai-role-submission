@@ -58,6 +58,9 @@ service entrypoints in `ledger_core/services/<service>.py`.
   `api.espocrm` fallback skill). The browser logs in as `ESPO_OPERATOR_USER`.
   Workers never get the verifier's REST key.
 - Mailpit: SMTP `mailpit:1025`, API `http://mailpit:8025/api/v1`.
+- Offline LLM: `LLM_BACKEND=scripted` reads fixtures from `tests/fixtures/llm/`,
+  mounted read-only at `/app/fixtures/llm` (`LLM_FIXTURES_DIR`) in every
+  service that can call the LLM; the test container reads `/repo/tests/fixtures/llm`.
 
 ## LLM budget (OpenRouter free tier: 50 requests/day across everything)
 
