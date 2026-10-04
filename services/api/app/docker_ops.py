@@ -41,9 +41,14 @@ def project() -> str | None:
 
 
 def find_container(service: str, *, include_stopped: bool = True) -> Any:
-    """The compose container for `service` in this project."""
+    """The compose container for `service` in this project.
+
+    One-off containers (`docker compose run <service>`, e.g. the Playwright runner
+    that `make test-gui` starts from the worker-browser-1 image) carry the same
+    service label; they are not the agent, so they are excluded. Without this a
+    kill_worker could kill the test runner instead of the operator."""
     c = client()
-    labels = [f"com.docker.compose.service={service}"]
+    labels = [f"com.docker.compose.service={service}", "com.docker.compose.oneoff=False"]
     if project():
         labels.append(f"com.docker.compose.project={project()}")
     found = c.containers.list(all=include_stopped, filters={"label": labels})

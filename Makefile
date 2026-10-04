@@ -67,6 +67,9 @@ test-browser:  ## Playwright tests inside the browser image
 
 test-gui:  ## Track L: drive the demo in the GUI with Playwright (stack up + seeded, LLM_BACKEND=scripted); screenshots in web/screenshots/real
 	mkdir -p web/screenshots/real
+	git checkout playbooks/event-leads.md  # a saved rule from the last run would decide Sam Ito
+	$(E2E_DC) run --rm --no-deps test python -c "import sys; sys.path[:0] = ['tests/e2e', 'tests']; \
+		import e2e_helpers as h; h.reset_world(h.Api(), h.Crm(), h.Mailpit()); print('world reset: CRM = seed, Mailpit empty')"
 	$(DC) run --rm --no-deps -v ./tests:/repo/tests:ro -v ./web/screenshots/real:/out -e GUI_E2E_BASE=http://web \
 		-e GUI_E2E_OUT=/out -e PYTHONDONTWRITEBYTECODE=1 worker-browser-1 \
 		python -m pytest -p no:cacheprovider -q -s /repo/tests/e2e/test_gui_demo.py $(ARGS)

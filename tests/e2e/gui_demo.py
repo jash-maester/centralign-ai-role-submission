@@ -113,20 +113,123 @@ def main() -> int:
         # 3. Inject a false claim from Run controls ------------------------------------------
         btn = page.locator("[data-testid=fault-false_claim]")
         btn.scroll_into_view_if_needed()
-        with page.expect_response(lambda r: "/api/chaos/false_claim" in r.url) as fr:
-            btn.click()
-        log(f"POST /chaos/false_claim -> {fr.value.status}")
-        assert fr.value.status < 300
 
-        def rejected() -> bool:
-            evs = (api_json(page, f"/runs/{run_id}/events?type=step.rejected&limit=1000") or {}).get("events", [])
-            return bool(evs)
+        def evs_of(kind: str) -> list[dict]:
+            return (api_json(page, f"/runs/{run_id}/events?type={kind}&limit=1000") or {}).get("events", [])
 
-        wait_until(rejected, 240, every=2, what="the verifier to reject the false claim")
+        def outcome():
+            """'rejected' once the verifier rejects; 'noop' when every consumed shot hit a step
+            whose postcondition already held (e.g. an update with nothing to add)."""
+            if evs_of("step.rejected"):
+                return "rejected"
+            hit = {e.get("step_id") for e in evs_of("fault.injected")
+                   if e["payload"].get("fault") == "false_claim" and e["payload"].get("phase") == "consumed"}
+            done = {e.get("step_id") for e in evs_of("step.committed")}
+            return "noop" if hit and hit <= done and len(hit) >= shots else None
+
+        shots = 0
+        for _ in range(3):
+            with page.expect_response(lambda r: "/api/chaos/false_claim" in r.url) as fr:
+                btn.click()
+            shots += 1
+            log(f"POST /chaos/false_claim -> {fr.value.status}")
+            assert fr.value.status < 300
+            res = wait_until(outcome, 240, every=2, what="the verifier to judge the false claim")
+            if res == "rejected":
+                break
+            # A no-op step (its postcondition already held) is correctly committed: the
+            # claim was false but harmless. Inject again so the demo shows a rejection.
+            log("false claim landed on a no-op step (postcondition already held); injecting again")
+        assert res == "rejected", "the verifier never rejected a false claim"
         log("verifier rejected the false claim")
         time.sleep(2)
         page.locator("[data-testid=live-ledger]").scroll_into_view_if_needed()
         shot(page, "04-false-claim-rejected")
+
+        # 3b. Kill the browser operator holding a lease (Run controls) ------------------------
+        def lease_holder():
+            for a in api_json(page, "/agents") or []:
+                if str(a.get("id", "")).startswith("worker-browser") and a.get("current_step") \
+                        and a.get("alive") is not False and a.get("run_id") in (None, run_id):
+                    return a
+            return None
+
+        holder = wait_until(lease_holder, 180, every=0.5, what="a browser operator to hold a lease")
+        time.sleep(1.5)  # let the store's agent list catch up, so the button targets the holder
+        holder = lease_holder() or holder
+        kill_btn = page.locator("[data-testid=fault-kill_worker]")
+        kill_btn.scroll_into_view_if_needed()
+        with page.expect_response(lambda r: "/api/chaos/kill_worker" in r.url) as kr:
+            kill_btn.click()
+        body = json.loads(kr.value.request.post_data or "{}")
+        log(f"POST /chaos/kill_worker -> {kr.value.status} body={body}")
+        assert kr.value.status < 300
+        killed = body.get("agent_id")
+        assert killed and killed.startswith("worker-browser"), f"kill_worker must target the lease holder: {body}"
+        killed_step = holder.get("current_step") if holder.get("id") == killed else None
+
+        def taken_over():
+            evs = (api_json(page, f"/runs/{run_id}/events?type=step.lease_expired&limit=1000") or {}).get("events", [])
+            return [e for e in evs if not killed_step or e.get("step_id") == killed_step]
+
+        exp = wait_until(taken_over, 180, every=1, what="the killed operator's lease to expire")
+        step_id = exp[-1].get("step_id")
+        log(f"lease expired on {step_id} after killing {killed}")
+
+        def recommitted():
+            evs = (api_json(page, f"/runs/{run_id}/events?type=step.committed&limit=1000") or {}).get("events", [])
+            return [e for e in evs if e.get("step_id") == step_id]
+
+        wait_until(recommitted, 240, every=1, what="the other operator to take over and commit")
+        log(f"{step_id} committed after takeover")
+        page.locator("[data-testid=run-controls]").scroll_into_view_if_needed()
+        time.sleep(1)
+        shot(page, "04b-kill-worker-takeover")
+        # bring the killed operator back from its agent sheet (Restart container)
+        table = page.locator("[data-testid=agents-table]")
+        table.scroll_into_view_if_needed()
+        row_name = table.locator(f"text={killed}").first
+        # the store polls /agents; wait until the row reads "lost" (alive=false) before opening it
+        wait_until(lambda: "lost" in (row_name.locator("xpath=ancestor::*[contains(@class,'grid')][1]").inner_text()),
+                   60, what=f"{killed} to show as lost")
+        row_name.click()
+        page.wait_for_selector("[data-testid=agent-sheet]", timeout=10000)
+        restart = page.get_by_role("button", name="Restart container")  # in the sheet body, outside the header testid
+        try:
+            restart.wait_for(timeout=30000)
+        except Exception:
+            shot(page, "04c-agent-sheet-no-restart")
+            log("agent sheet: " + page.inner_text("[data-testid=agent-sheet]")[:400].replace("\n", " | "))
+            raise
+        with page.expect_response(lambda r: "/restart" in r.url and r.request.method == "POST") as rr:
+            restart.click()
+        log(f"POST /agents/{killed}/restart -> {rr.value.status}")
+        assert rr.value.status < 300
+        shot(page, "04c-agent-restarted")
+        page.keyboard.press("Escape")
+        wait_until(lambda: any(a.get("id") == killed and a.get("alive") for a in api_json(page, "/agents") or []),
+                   90, what=f"{killed} to come back")
+        log(f"{killed} alive again")
+
+        # 3c. Determinism slider to 1.0 ------------------------------------------------------------
+        page.keyboard.press("Escape")
+        slider = page.locator("[data-testid=ctl-determinism]")
+        slider.scroll_into_view_if_needed()
+        with page.expect_response(lambda r: f"/api/runs/{run_id}/" in r.url and r.request.method in ("POST", "PUT", "PATCH")
+                                  and "escalation" not in r.url, timeout=15000) as dr:
+            slider.focus()
+            page.keyboard.press("End")
+        log(f"{dr.value.request.method} {dr.value.url.split('/api', 1)[1]} -> {dr.value.status}")
+        assert dr.value.status < 300
+
+        def det_one():
+            cfg = (api_json(page, f"/runs/{run_id}/config") or {}).get("config") or {}
+            return cfg if cfg.get("determinism") == 1.0 else None
+
+        cfg = wait_until(det_one, 20, what="run config determinism=1.0")
+        log(f"determinism=1.0 stored (seed_pinned={cfg.get('seed_pinned')})")
+        time.sleep(1)
+        shot(page, "04d-determinism-1.0")
 
         # 4. Answer the Sam Ito escalation ---------------------------------------------------------
         page.evaluate("window.scrollTo(0, 0)")

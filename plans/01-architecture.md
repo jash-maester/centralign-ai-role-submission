@@ -328,6 +328,14 @@ meta-reviewer answers with a `task.artifact` whose data part is:
   `make demo LLM_BACKEND=...` (explicit backend) starts its own in-process
   orchestrator and pins the run to it, so a scripted demo no longer reaches
   the live service's OpenRouter backend.
+- Config before creation (W4): `POST /runs` stores the submitted run config
+  before `run.created` (`run.config_updated(initial)` comes first, as in
+  `submit_goal`), so an orchestrator can never store playbook defaults over it.
+- Finish guard (W4): `_maybe_finish(basis=...)` does not close a run whose step
+  fingerprint changed after the round read the ledger (a late parse commit once
+  completed a run with zero lanes); at most one extra tick.
+- Browser account links (W4): `create_contact` inputs carry `account_name` next
+  to `account_id` (the UI links by name, the verifier checks by id).
 - Lane lookup (`orchestrator_lanes.lookup_for`) = the search step's claim data
   overlaid with the verifier-committed lane facts (`<lane>.routing`,
   `<lane>.lookup`, `<lane>.owner`, `<lane>.open_deal`). Track F's `lookup`

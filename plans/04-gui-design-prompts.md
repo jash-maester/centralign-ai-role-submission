@@ -235,3 +235,21 @@ from the designs:
   says so when the API does not have it.
 - The step graph is React Flow + dagre over the real dependency graph rather
   than the design's fixed 5-column lane grid; the Steps table keeps the lane view.
+
+## Phase 7 acceptance (Track L, wave W4)
+
+`make test-gui` (`tests/e2e/gui_demo.py`, Playwright in the browser image
+against `http://web`, scripted LLM backend) performs the plans/05 demo from
+the browser: Builder run (`POST /runs`), Dashboard progress, false claim from
+Run controls (verifier rejects), Kill worker on the browser lease holder (lease
+expires, the other operator commits the step), the agent sheet's Restart
+container, Determinism slider to 1.0 (`POST /runs/{id}/determinism`), the Sam
+Ito escalation answered with save-as-rule, approval batch, Report and markdown
+export. Screenshots land in `web/screenshots/real/` (git-ignored). Deviations:
+
+- `GET /playbooks/{name}` now exists (additive), so the Content tab reads it.
+- The approval card does not offer save-as-rule; rules apply to row decisions
+  only (an email approval is per batch, not a reusable policy).
+- Before each `make test-gui`: scrub the CRM, empty Mailpit and
+  `git checkout playbooks/event-leads.md`, because the saved rule is written
+  through the bind mount and would decide Sam on the next run.
