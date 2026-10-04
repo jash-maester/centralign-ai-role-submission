@@ -545,3 +545,22 @@ hard check exists, and its verdict is recorded with its reasoning.
 | GET/PUT| `/agents/{id}/config`              | Prompt, injections, tools       |
 | POST   | `/agents/{id}/restart`             | Restart an agent's container    |
 | WS     | `/agents/{id}/exec`                | Sandboxed shell into container  |
+
+**Implementation notes (Track H, API).** Additive endpoints beyond the table:
+`POST /runs/{id}/config/reset` (H13 reset to playbook defaults), `GET /chaos`
+(armed switches) and `DELETE /chaos/{fault}`. `POST /runs` also accepts an
+optional hand-written `steps` plan (the CLI run-spec format) so `curl` can drive
+a run without the planner; without it the run is only created (`run.created`)
+for the orchestrator. `GET /stream`: `id` = stream id, `event` = type,
+`Last-Event-ID` (or `?last_event_id=`) resumes; with `run_id` and no resume id
+the run's backlog is replayed first; `?from=now`, `?follow=false`, `?max_s=`.
+`POST /chaos/{fault}` sets `Keys.faults` (default 1 shot; `false_claim` is
+scoped to `browser.espocrm` unless `skill` is given) and emits
+`fault.injected` (phase `injected`); `kill_worker` kills the agent's compose
+container via the docker socket unless `kill: false`. Only the api mounts
+`/var/run/docker.sock` (joined via `group_add: DOCKER_GID`, process stays uid
+10001); restart emits `config.updated` `{scope: agent, action: restart}`; the
+shell runs as uid 10001 and emits `shell.opened`. Run config is written through
+`run_config.py` (JSON string); `ledger.get_run_config` reads both that and the
+CLI's Hash format. The report (`ledger_core/report.py`) is built only from
+steps, facts and events; `?format=md` returns markdown.
