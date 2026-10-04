@@ -173,7 +173,6 @@ ever be sent).
 ## 3. Demo
 
 - **[`demo/demo-final.mp4`](demo/demo-final.mp4)** (4:29, 2560×1440, narrated by me;
-  [play in browser](https://jash-maester.github.io/centralign-ai-role-submission/submission/demo/demo-final.mp4),
   [direct download](https://github.com/jash-maester/centralign-ai-role-submission/raw/main/submission/demo/demo-final.mp4)):
   one real run driven through the GUI, with animated explainers cut in. Builder (one-line
   goal → Run, agents around the ledger) → the shared ledger and step graph → claim vs.
@@ -189,7 +188,7 @@ ever be sent).
   → false claim rejected → kill-worker takeover → agent restarted → determinism 1.0 →
   Sam Ito escalation → what the meta-reviewer tried → answered → settled Dashboard →
   Report.
-- **Live:** follow the [README](../README.md#run-it); a full run takes about 1-2 minutes.
+- **Live:** follow the [README](../README.md#run-it) on a laptop, or [deploy it on a server](../README.md#deploy-on-a-server-docker); a full run takes about 1-2 minutes.
 
 ![Escalation](screenshots/05-escalation-sam-ito.png)
 ![Report](screenshots/08-report.png)

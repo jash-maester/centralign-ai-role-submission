@@ -22,7 +22,7 @@ The innovation is in the backend coordination layer, not the UI:
 
 **Submission write-up** (architecture, design decisions, limitations, next steps,
 assumptions, models and services used): [`submission/SUBMISSION.md`](submission/SUBMISSION.md).
-**Demo video (narrated, 1440p, 4:29):** [`submission/demo/demo-final.mp4`](submission/demo/demo-final.mp4) · [play in browser](https://jash-maester.github.io/centralign-ai-role-submission/submission/demo/demo-final.mp4) · [direct download](https://github.com/jash-maester/centralign-ai-role-submission/raw/main/submission/demo/demo-final.mp4). **Screenshots:**
+**Demo video (narrated, 1440p, 4:29):** [`submission/demo/demo-final.mp4`](submission/demo/demo-final.mp4) ([direct download](https://github.com/jash-maester/centralign-ai-role-submission/raw/main/submission/demo/demo-final.mp4)). **Screenshots:**
 [`submission/screenshots/`](submission/screenshots/).
 
 ---
@@ -108,6 +108,59 @@ make chaos-model-outage       # primary model fails -> model.fallback to the nex
 make determinism LEVEL=1.0 RUN=<run_id>   # temperatures to 0 + pinned seed
 make replay RUN=<run_id>      # re-run from the same inputs and config with zero live LLM calls
 ```
+
+## Deploy on a server (Docker)
+
+Ledger is a multi-container stack (Redis, EspoCRM + MariaDB, Mailpit, two headless
+Chromium workers, seven Python services, nginx), so it needs a Docker host rather than a
+static or serverless platform (Netlify, Vercel and similar cannot run it).
+
+1. **Provision a VM** with 4 vCPU, 8 GB RAM and 20 GB disk (any cloud: DigitalOcean,
+   Hetzner, AWS Lightsail/EC2, GCP), Ubuntu 22.04+ or any Linux with Docker.
+2. **Install Docker and Compose** (Ubuntu): `curl -fsSL https://get.docker.com | sh`, then
+   `sudo usermod -aG docker $USER` and log in again. Install `make` and `git`
+   (`sudo apt-get install -y make git`).
+3. **Clone and configure:**
+   ```bash
+   git clone https://github.com/jash-maester/centralign-ai-role-submission.git ledger && cd ledger
+   cp .env.example .env
+   # edit .env: OPENROUTER_API_KEY (or LLM_BACKEND=scripted), new ESPO_* passwords,
+   # and CRM_PUBLIC_URL=http://localhost:8080 (keep it if you use the SSH tunnel below)
+   make up && make seed
+   ```
+4. **Reach it securely.** Every port in `docker-compose.yml` is bound to `127.0.0.1` on
+   purpose: the GUI has no login and the agent sheet includes a shell into the agent
+   containers. Choose one:
+   - **SSH tunnel (simplest, nothing exposed):**
+     `ssh -L 3000:localhost:3000 -L 8080:localhost:8080 -L 8025:localhost:8025 user@your-vm`,
+     then open http://localhost:3000 on your laptop.
+   - **Public URL behind a password:** put a reverse proxy with basic auth and TLS on the
+     host in front of `localhost:3000` (the GUI proxies the API under `/api`). Example with
+     [Caddy](https://caddyserver.com): `caddy hash-password` for a hash, then a `Caddyfile`:
+     ```
+     ledger.example.com {
+         basic_auth { demo <hashed-password> }
+         reverse_proxy localhost:3000
+     }
+     ```
+     Open EspoCRM and Mailpit through the SSH tunnel, or add similar blocks for 8080/8025
+     and set `CRM_PUBLIC_URL` to the CRM's public URL.
+5. **Operate:** `make logs SVC=orchestrator`, `make down` / `make up`, and
+   `make clean && make up && make seed` to reset to a fresh world. The Redis ledger uses AOF
+   and named volumes, so data survives restarts.
+
+### Design prototype (static, no backend)
+
+`web/design/` holds the original Claude Design prototype of the GUI: a clickable, static
+mock with sample data (Dashboard · Report · Builder). It needs no backend, so it can be
+served by any static host or one container:
+
+```bash
+docker run --rm -p 4173:80 -v "$PWD/web/design":/usr/share/nginx/html:ro nginx:alpine
+# open http://localhost:4173/Ledger%20Dashboard.dc.html
+```
+
+The real, data-driven GUI is `web/` and runs as part of the stack above.
 
 ## Tests
 
