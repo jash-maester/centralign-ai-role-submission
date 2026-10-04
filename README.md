@@ -22,7 +22,7 @@ The innovation is in the backend coordination layer, not the UI:
 
 **Submission write-up** (architecture, design decisions, limitations, next steps,
 assumptions, models and services used): [`submission/SUBMISSION.md`](submission/SUBMISSION.md).
-**Demo video:** [`submission/demo/demo-walkthrough.mp4`](submission/demo/demo-walkthrough.mp4) (3 min walkthrough) and [`submission/demo/teaser.mp4`](submission/demo/teaser.mp4) (25 s). **Screenshots:**
+**Demo video:** [`submission/demo/demo-walkthrough.mp4`](submission/demo/demo-walkthrough.mp4) (3 min walkthrough). **Screenshots:**
 [`submission/screenshots/`](submission/screenshots/).
 
 ---

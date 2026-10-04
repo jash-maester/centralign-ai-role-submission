@@ -184,11 +184,6 @@ ever be sent).
   Long waits are sped up (marked "N× speed"). Recorded on the deterministic scripted
   backend; the same flow on live models is described under
   [Live run on real models](#live-run-on-real-models).
-- **[`demo/teaser.mp4`](demo/teaser.mp4)** (25 s): the backend idea in one breath:
-  "Agents can't mark their own homework", claim vs. commit, a killed worker taken over
-  with zero duplicates, and the outcome. Built from real ledger events in the product's
-  own style. Poster: [`demo/teaser-poster.jpg`](demo/teaser-poster.jpg); post copy:
-  [`demo/share-copy.txt`](demo/share-copy.txt).
 - **Screenshots** of a real run driven by the GUI test (`make test-gui`):
   [`screenshots/`](screenshots/), in order: Builder goal → running → Dashboard progress
   → false claim rejected → kill-worker takeover → agent restarted → determinism 1.0 →
@@ -287,4 +282,4 @@ result as the deterministic demo.
 | Testing / quality | pytest, pytest-asyncio, respx, vitest, ESLint, ruff | Test suites and lint |
 | Packaging | Docker Compose, GNU Make | One-command run |
 | Agent framework | **None.** The coordination layer (ledger, leases, verifier, routing, review) is our own code | |
-| AI tools | Claude Code (Claude Opus 5.5) for implementation, as parallel tracks with integration gates; Claude Design for the GUI designs (`web/design/`); the `/brag-slim` skill guidance for the teaser video | Allowed by the brief; I wrote the plans and contracts, reviewed the gates and own the design |
+| AI tools | Claude Code (Claude Opus 5.5) for implementation, as parallel tracks with integration gates; Claude Design for the GUI designs (`web/design/`); Playwright + FFmpeg for the demo recording | Allowed by the brief; I wrote the plans and contracts, reviewed the gates and own the design |
