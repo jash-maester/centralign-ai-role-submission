@@ -62,16 +62,6 @@
   {
     "role": "worker",
     "schema": "EmailDraft",
-    "fixture_key": "lead:9",
-    "model": "scripted:drafter.json",
-    "response": {
-      "subject": "Good to meet you at Signal Summit, Sam",
-      "body": "Hi Sam,\n\nThanks for stopping by our booth at Signal Summit. It was good to hear how the team at Lumen is planning the next quarter, and I would be glad to share how similar teams have set things up. Would you be open to a short call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
-    }
-  },
-  {
-    "role": "worker",
-    "schema": "EmailDraft",
     "fixture_key": "lead:10",
     "model": "scripted:drafter.json",
     "response": {
@@ -87,6 +77,16 @@
     "response": {
       "subject": "Good to meet you at Signal Summit, Grace",
       "body": "Hi Grace,\n\nIt was lovely to meet you at Signal Summit. I enjoyed our conversation about how Tallgrass runs its operations, and as COO you clearly have a sharp view of what works. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
+    }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:9",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Sam",
+      "body": "Hi Sam,\n\nThanks for stopping by our booth at Signal Summit. I would be glad to show you how teams like yours at Lumen keep their event follow-ups on track. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
     }
   }
 ]

@@ -167,7 +167,7 @@ async def chaos_run(r, keys):
                                                   "completion_tokens": "200"})
     await _work(r, keys, rev4, "meta-reviewer", {
         "decision": "skip", "confidence": 0.91, "threshold": 0.8, "decided_by": "meta-reviewer",
-        "evidence": ["gmail.com is a personal domain", "Quarry Data has no account"],
+        "model": "good/model:free", "evidence": ["gmail.com is a personal domain", "Quarry Data has no account"],
         "reason": "personal email; playbook says skip"}, fence=fence)
     return run
 
@@ -204,7 +204,7 @@ async def test_report_sections_from_chaos_run(r, keys, chaos_run):
     assert decisions["Which Lumen is sam@lumen.io?"]["result"] == "waiting on you"
     ben = decisions["Personal email: Ben Ortiz"]
     assert ben["confidence"] == 0.91 and ben["threshold"] == 0.8 and ben["result"] == "skip"
-    assert not ben["escalated"]
+    assert not ben["escalated"] and ben["model"] == "good/model:free"  # W3: model on every auto decision
 
     cov = {c["check"]: c for c in rep["coverage"]}
     assert (cov["crm.contact_exists"]["runs"], cov["crm.contact_exists"]["pass"],

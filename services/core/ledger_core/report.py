@@ -298,6 +298,9 @@ def _decisions(inp: ReportInput) -> list[dict[str, Any]]:
             "decided_by": d.get("decided_by") or (s.claim.worker if s.claim else "-"),
             "escalated": s.id in escalated or s.status == S.INPUT_REQUIRED,
             "forced_reason": d.get("forced_reason"),
+            # W3: which model (or rule / human) made the call, for every auto decision
+            "model": d.get("model") or next((a.model for a in reversed(s.history) if a.model), None),
+            "source": d.get("source"),
         })
     return out
 
@@ -748,9 +751,10 @@ def to_markdown(rep: dict[str, Any]) -> str:
                   f"[open]({x['crm_url']})" if x.get("crm_url") else None,
                   f"![]({x['screenshot']})" if x.get("screenshot") else None] for x in rep["leads"]])
     L += ["## Decisions", ""]
-    L += _table(["Decision", "Confidence", "Threshold", "Result", "Decided by", "Evidence"],
+    L += _table(["Decision", "Confidence", "Threshold", "Result", "Decided by", "Model", "Evidence"],
                 [[d["title"], d.get("confidence"), d.get("threshold"), d["result"],
-                  d["decided_by"] + (" (escalated)" if d.get("escalated") else ""), "; ".join(d["evidence"])]
+                  d["decided_by"] + (" (escalated)" if d.get("escalated") else ""),
+                  d.get("model") or d.get("source") or "-", "; ".join(d["evidence"])]
                  for d in rep["decisions"]])
     L += ["## Faults and recoveries", ""]
     L += _table(["At (s)", "Fault", "What happened", "Recovery", "Time lost (s)"],
