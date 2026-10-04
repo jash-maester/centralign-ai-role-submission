@@ -7,12 +7,15 @@
 For each step in `claimed_done`:
 1. Build a postconditions.CheckContext with `context_factory(step, r, keys)`.
    The default gives run/step ids, the claim data (for comparison only), the
-   committed facts and DATA_DIR. Track F passes its own factory to add the
-   read-only CRM client and the Mailpit client.
+   committed facts and DATA_DIR, plus extra r/keys/config/playbook/rejections.
+   make_context_factory() (Track F; used by the verifier service) adds the
+   read-only CRM reader (ctx.crm) and the Mailpit client (ctx.mailpit).
 2. Resolve "fact:<key>" refs in postcondition args/expect, then
    `run_check(check, args, expect, ctx)`. A check that raises is a failed check.
-3. If the deterministic check passed and a `judge` is installed (Track F: LLM
-   judge for soft checks, D4), the judge may still fail it.
+3. If the deterministic check passed and a `judge` is installed (Track F:
+   judge.make_judge(), LLM judge for soft checks, D4), the judge may still fail
+   it. Its score/flags/reasoning land in observed["judge"] and its model in
+   Verdict.model.
 4. ok  -> ledger.commit(): verified -> committed, and the step's facts are
    written in the same transaction. Facts come from `facts_from_claim`.
    not ok -> ledger.reject(): rejected (reason stored on the attempt in
@@ -80,13 +83,56 @@ def facts_from_claim(step: Step, claim: Claim, result: CheckResult) -> dict[str,
 
 
 async def default_context(step: Step, r: aioredis.Redis, keys: Keys) -> CheckContext:
+    run = await ledger.get_run(r, keys, step.run_id)
     return CheckContext(
         run_id=step.run_id, step_id=step.id,
         claim=dict(step.claim.data) if step.claim else None,
         facts=await ledger.get_facts(r, keys, step.run_id),
         data_dir=get_settings().data_dir,
-        extra={"step": step, "claim": step.claim, "inputs": step.inputs},
+        extra={"step": step, "claim": step.claim, "inputs": step.inputs,
+               # Track F (additive): handles for the LLM judge and checks that need them
+               "r": r, "keys": keys, "config": await ledger.get_run_config(r, keys, step.run_id),
+               "playbook": run.playbook if run else None,
+               "rejections": ledger.rejection_reasons(step)},
     )
+
+
+def make_context_factory(
+    *, crm: Any = None, mailpit: Any = None, secrets_keys: Keys | None = None,
+) -> ContextFactory:
+    """Track F: the verifier's world handles on top of default_context.
+
+    ctx.crm      CrmReader with the read-only `ledger-verifier` key (from the
+                 seed's Keys.crm_secrets; `secrets_keys` overrides the namespace
+                 they are read from). Built lazily and reused; if the CRM is not
+                 seeded yet ctx.crm stays None and CRM checks fail with a reason.
+    ctx.mailpit  MailpitClient on MAILPIT_API_URL (read side of email.sent).
+    Pass `crm` / `mailpit` to inject clients (tests)."""
+    from .crm_api import CrmError, reader_from_redis
+    from .mailpit import MailpitClient
+
+    state: dict[str, Any] = {"crm": crm, "mailpit": mailpit}
+
+    async def factory(step: Step, r: aioredis.Redis, keys: Keys) -> CheckContext:
+        ctx = await default_context(step, r, keys)
+        if state["crm"] is None:
+            try:
+                state["crm"] = await reader_from_redis(r, secrets_keys or keys)
+            except CrmError as exc:
+                log.warning("no CRM reader yet: %s", exc)
+        if state["mailpit"] is None:
+            state["mailpit"] = MailpitClient()
+        ctx.crm, ctx.mailpit = state["crm"], state["mailpit"]
+        return ctx
+
+    async def aclose() -> None:
+        for k in ("crm", "mailpit"):
+            if state[k] is not None and hasattr(state[k], "aclose"):
+                await state[k].aclose()
+            state[k] = None
+
+    factory.aclose = aclose  # type: ignore[attr-defined]
+    return factory
 
 
 async def default_reject_policy(step: Step, verdict: Verdict, cfg: RunConfig) -> StepStatus | None:
@@ -213,8 +259,10 @@ class Verifier:
         if step is None or step.status != StepStatus.CLAIMED_DONE or step.claim is None:
             return None
         result, _ctx = await self.check(step)
+        judged = result.observed.get("judge") if isinstance(result.observed, dict) else None
         verdict = Verdict(ok=result.ok, check=step.postcondition.check, reason=result.reason,
-                          observed=result.observed, verifier=self.agent_id)
+                          observed=result.observed, verifier=self.agent_id,
+                          model=judged.get("model") if isinstance(judged, dict) else None)
         try:
             if result.ok:
                 facts = facts_from_claim(step, step.claim, result)

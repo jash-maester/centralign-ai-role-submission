@@ -129,6 +129,10 @@ class OpenRouterBackend:
         outage = role in MODEL_OUTAGE_ROLES and await self._consume_outage()
         if outage:
             models = [OUTAGE_MODEL, *models[1:]]
+            await self.sink.emit(EventType.FAULT_INJECTED, {
+                "fault": FaultName.MODEL_OUTAGE.value, "switch": FaultName.MODEL_OUTAGE.value, "phase": "consumed",
+                "effect": f"primary {role} model replaced by {OUTAGE_MODEL}", "role": role,
+            }, run_id, step_id)
         if not cfg.model_fallback:
             models = models[:1]
 
@@ -337,16 +341,10 @@ class OpenRouterBackend:
             return None
 
     async def _consume_outage(self) -> bool:
-        r, key, field = self.sink.r, self.sink.keys.faults, FaultName.MODEL_OUTAGE.value
-        raw = await r.hget(key, field)
-        if raw is None:
-            return False
-        if not str(raw).strip().lstrip("-").isdigit():
-            return str(raw).strip().lower() not in ("off", "false", "")
-        left = await r.hincrby(key, field, -1)
-        if left <= 0:
-            await r.hdel(key, field)
-        return left >= 0
+        """F4: one shot of the model_outage switch (read through ledger_core.faults)."""
+        from . import faults
+
+        return bool(await faults.consume(self.sink.r, self.sink.keys, FaultName.MODEL_OUTAGE))
 
     async def _run_config(self, run_id: str | None) -> RunConfig:
         from . import run_config
