@@ -12,6 +12,12 @@ format and lookup rules are documented in tests/fixtures/llm/README.md:
 - lookup order for (role, schema name): exact fixture_key, then a fixture
   whose "match" substring occurs in the messages, then the default fixture
   (no fixture_key, no match). A miss raises LLMError naming what to add.
+
+Fault F4 (Track M): `model_outage` is honoured here too, so chaos runs on the
+scripted backend show the same timeline as on OpenRouter: for a role in
+llm_openrouter.MODEL_OUTAGE_ROLES one shot is consumed (fault.injected
+phase=consumed), the injected primary model "fails" and model.fallback names
+the scripted model that answers instead.
 """
 
 from __future__ import annotations
@@ -126,11 +132,13 @@ class ScriptedBackend:
             )
         if "error" in fx:
             raise LLMError(f"scripted error ({fx['_file']}): {fx['error']}")
+        model = fx.get("model") or f"{self.model_name}:{fx['_file']}"
+        if self.emit_events:
+            await self._outage(role, model, run_id, step_id, config)
         answers = fx["responses"] if "responses" in fx else [fx["response"]]
         n = self._used.get(id(fx), 0)
         self._used[id(fx)] = n + 1
         result = schema.model_validate(answers[min(n, len(answers) - 1)])
-        model = fx.get("model") or f"{self.model_name}:{fx['_file']}"
         if self.emit_events:
             await self._emit(run_id, step_id, {
                 "role": role, "model": model, "ok": True, "status": 200, "cached": False, "scripted": True,
@@ -138,6 +146,29 @@ class ScriptedBackend:
             })
         record_call(CallInfo(role=role, model=model))
         return result
+
+    async def _outage(self, role: str, model: str, run_id: str | None, step_id: str | None,
+                      config: RunConfig | None) -> None:
+        """F4 on the scripted backend: consume one model_outage shot and fall back."""
+        from . import faults
+        from .llm_openrouter import MODEL_OUTAGE_ROLES, OUTAGE_MODEL, LedgerSink
+        from .protocol import FaultName
+
+        if role not in MODEL_OUTAGE_ROLES:
+            return
+        if self._sink is None:
+            self._sink = LedgerSink(self._r, self._keys, self.settings)
+        if not await faults.consume(self._sink.r, self._sink.keys, FaultName.MODEL_OUTAGE):
+            return
+        await self._sink.emit(EventType.FAULT_INJECTED, {
+            "fault": FaultName.MODEL_OUTAGE.value, "switch": FaultName.MODEL_OUTAGE.value, "phase": "consumed",
+            "effect": f"primary {role} model replaced by {OUTAGE_MODEL}", "role": role,
+        }, run_id, step_id)
+        reason = f"fault model_outage: {OUTAGE_MODEL} is not a valid model id"
+        if config is not None and not config.model_fallback:
+            raise LLMError(f"all models failed for role {role}: {OUTAGE_MODEL}: {reason}")
+        await self._sink.emit(EventType.MODEL_FALLBACK, {"role": role, "from": OUTAGE_MODEL, "to": model,
+                                                         "reason": reason}, run_id, step_id)
 
     async def _emit(self, run_id: str | None, step_id: str | None, payload: dict[str, Any]) -> None:
         if self._sink is None:

@@ -78,5 +78,15 @@
       "subject": "Good to meet you at Signal Summit, Grace",
       "body": "Hi Grace,\n\nIt was lovely to meet you at Signal Summit. I enjoyed our conversation about how Tallgrass runs its operations, and as COO you clearly have a sharp view of what works. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
     }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:9",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Sam",
+      "body": "Hi Sam,\n\nThank you for stopping by at Signal Summit. I look after the Lumen relationship on our side, and I would be glad to share how teams like yours use the platform day to day. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
+    }
   }
 ]
