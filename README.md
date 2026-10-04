@@ -22,7 +22,7 @@ The innovation is in the backend coordination layer, not the UI:
 
 **Submission write-up** (architecture, design decisions, limitations, next steps,
 assumptions, models and services used): [`submission/SUBMISSION.md`](submission/SUBMISSION.md).
-**Demo video:** [`submission/demo/demo-walkthrough.mp4`](submission/demo/demo-walkthrough.mp4) (3 min walkthrough). **Screenshots:**
+**Demo video (narrated, 1440p, 4:29):** [`submission/demo/demo-final.mp4`](submission/demo/demo-final.mp4) · [play in browser](https://jash-maester.github.io/centralign-ai-role-submission/submission/demo/demo-final.mp4) · [direct download](https://github.com/jash-maester/centralign-ai-role-submission/raw/main/submission/demo/demo-final.mp4). **Screenshots:**
 [`submission/screenshots/`](submission/screenshots/).
 
 ---

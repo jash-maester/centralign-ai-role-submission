@@ -172,18 +172,18 @@ ever be sent).
 
 ## 3. Demo
 
-- **[`demo/demo-walkthrough.mp4`](demo/demo-walkthrough.mp4)** (3:08, 1080p, captions, no
-  voiceover): one continuous real take of a run driven through the GUI. Builder (one-line
-  goal → Run, agents animating around the ledger) → Dashboard (steps, criteria, live
-  ledger) → **false claim injected**: the verifier rejects it ("no CRM contact has email
-  omar@brightline.co") and the retry commits → **browser worker killed** while holding a
-  lease: the reaper expires the lease and worker-browser-2 takes over with fencing token 2
-  → step drawers showing both attempts → the Sam Ito escalation (what the meta-reviewer
-  tried, 0.52 < 0.80) answered with "save as playbook rule" → Mailpit inbox → evidence
-  report (every row, decisions, what went wrong and how it recovered, reproduce block).
-  Long waits are sped up (marked "N× speed"). Recorded on the deterministic scripted
-  backend; the same flow on live models is described under
-  [Live run on real models](#live-run-on-real-models).
+- **[`demo/demo-final.mp4`](demo/demo-final.mp4)** (4:29, 2560×1440, narrated by me;
+  [play in browser](https://jash-maester.github.io/centralign-ai-role-submission/submission/demo/demo-final.mp4),
+  [direct download](https://github.com/jash-maester/centralign-ai-role-submission/raw/main/submission/demo/demo-final.mp4)):
+  one real run driven through the GUI, with animated explainers cut in. Builder (one-line
+  goal → Run, agents around the ledger) → the shared ledger and step graph → claim vs.
+  commit → **false claim injected**: the verifier rejects it via CRM REST and the retry
+  commits → **browser worker killed** mid-step: the lease expires and worker-browser-2
+  takes over with fencing token 2, no duplicates → the Sam Ito escalation (0.52 < 0.80)
+  answered and saved as a playbook rule → Mailpit inbox → evidence report with every
+  failure paired with its recovery. Recorded on the deterministic scripted backend so it is
+  reproducible; the same flow on live models is described under
+  [Live run on real models](#live-run-on-real-models). Script: [`demo/voiceover-script.md`](demo/voiceover-script.md).
 - **Screenshots** of a real run driven by the GUI test (`make test-gui`):
   [`screenshots/`](screenshots/), in order: Builder goal → running → Dashboard progress
   → false claim rejected → kill-worker takeover → agent restarted → determinism 1.0 →
