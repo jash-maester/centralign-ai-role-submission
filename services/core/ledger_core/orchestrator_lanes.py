@@ -426,7 +426,18 @@ def lookup_for(lane_steps: list[Step], facts: dict[str, Any]) -> tuple[Step | No
     if search is None:
         return None, {}
     fact = facts.get(f"{lane}.lookup")
-    return search, fact if isinstance(fact, dict) else step_output(search, facts)
+    if not isinstance(fact, dict):
+        return search, step_output(search, facts)
+    # Track F's lookup fact holds only {result, match_type, contact_id, candidates};
+    # routing (owner, owner_reason, account_*) and open_deal live in sibling facts
+    # / the claim. Merge so lanes keep their owner (W2 integration fix, Track K).
+    merged = {**step_output(search, facts), **{k: v for k, v in fact.items() if v is not None}}
+    routing = facts.get(f"{lane}.routing")
+    if isinstance(routing, dict):
+        merged.update({k: v for k, v in routing.items() if v is not None and merged.get(k) is None})
+    if facts.get(f"{lane}.open_deal") is not None:
+        merged["open_deal"] = facts[f"{lane}.open_deal"]
+    return search, merged
 
 
 def decision_for(lane: str, review: Step | None, facts: dict[str, Any]) -> dict[str, Any] | None:
