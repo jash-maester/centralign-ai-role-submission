@@ -204,8 +204,9 @@ async def test_fact_refs_in_postcondition_args_are_resolved(r, keys, good):
 def test_default_facts_for_unregistered_kind():
     from ledger_core.protocol import Step
 
-    step = Step(run_id="r", kind=StepKind.EMAIL_SEND, skill="email.send",
-                postcondition=Postcondition(check="email.sent"))
+    # (email.send has an extractor since Track K; run.verify stays unregistered)
+    step = Step(run_id="r", kind=StepKind.RUN_VERIFY, skill="review",
+                postcondition=Postcondition(check="run.criteria_met"))
     claim = Claim(worker="w", fence=1, summary="sent", data={"message_id": "m1"})
     assert facts_from_claim(step, claim, CheckResult(True, "ok")) == {f"step:{step.id}": {"message_id": "m1"}}
 
