@@ -6,7 +6,10 @@ import uuid
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
+
+pytest.importorskip("fastapi")
+
+from fastapi import HTTPException  # noqa: E402
 
 from api_helpers import api_client
 from ledger_core.llm_openrouter import utc_day

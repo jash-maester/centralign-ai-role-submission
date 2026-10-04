@@ -151,10 +151,12 @@ def data_path(name: str | None, data_dir: str | None = None) -> Path | None:
 async def submit_goal(
     r: aioredis.Redis, keys: Keys, goal: str, *, input_file: str | None = None,
     config: dict[str, Any] | None = None, playbook: str = playbook_mod.DEFAULT_PLAYBOOK, actor: str = "cli",
-    playbook_dir: str | None = None,
+    playbook_dir: str | None = None, orchestrator: str | None = None,
 ) -> Run:
     """Create a run for the orchestrator: run record (run.created) and its
-    starting config (playbook defaults + `config` overrides, run.config_updated)."""
+    starting config (playbook defaults + `config` overrides, run.config_updated).
+    `orchestrator` pins the run to one orchestrator agent id (hash field
+    `orchestrator`); every other orchestrator leaves it alone."""
     pb = playbook_mod.load(playbook, playbook_dir)
     cfg = RunConfig.model_validate({**pb.run_defaults().model_dump(), **(config or {})})
     run = Run(goal=goal, input_file=input_file, playbook=pb.name, playbook_hash=pb.content_hash,
@@ -162,6 +164,9 @@ async def submit_goal(
     if (f := data_path(input_file)) is not None:
         run.input_sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
     await run_config.init(r, keys, run.id, cfg, actor=actor)
+    if orchestrator:
+        # written before run.created, so no other orchestrator can see the run unowned
+        await r.hset(keys.run(run.id), "orchestrator", orchestrator)
     await ledger.create_run(r, keys, run, actor=actor)
     return run
 
@@ -175,9 +180,11 @@ class Orchestrator:
     def __init__(
         self, r: aioredis.Redis, keys: Keys, *, agent_id: str = ACTOR, playbook_dir: str | None = None,
         context_factory: ContextFactory | None = None, run_reaper: bool = True, sweep_interval_s: float = 5.0,
-        reaper_interval_s: float = 2.0, block_ms: int = 1000,
+        reaper_interval_s: float = 2.0, block_ms: int = 1000, owned_only: bool = False,
     ) -> None:
         self.r, self.keys, self.agent_id = r, keys, agent_id
+        # owned_only: reconcile only runs pinned to this agent id (submit_goal(orchestrator=...))
+        self.owned_only = owned_only
         self.playbook_dir = playbook_dir
         self.context_factory = context_factory or self._default_context
         self.run_reaper, self.reaper_interval_s = run_reaper, reaper_interval_s
@@ -272,6 +279,11 @@ class Orchestrator:
             run = await ledger.get_run(self.r, self.keys, run_id)
             if run is None or run.status not in ACTIVE_RUN_STATUSES:
                 return run
+            owner = await self.r.hget(self.keys.run(run_id), "orchestrator")
+            if isinstance(owner, bytes):
+                owner = owner.decode()
+            if (owner and owner != self.agent_id) or (self.owned_only and owner != self.agent_id):
+                return run  # pinned to another orchestrator
             try:
                 if run.status in (RunStatus.CREATED, RunStatus.UNDERSTANDING) and not run.criteria:
                     run = await self._understand(run)
@@ -280,8 +292,30 @@ class Orchestrator:
             except (llm.LLMBudgetExhausted, llm.LLMSpendCapReached, InvalidOutput, llm.LLMError) as exc:
                 return await self._fail(run, f"{type(exc).__name__}: {exc}")
             if run.status in (RunStatus.RUNNING, RunStatus.COMPLETED_PENDING_INPUT):
+                if not run.criteria:
+                    # hand-written plan (CLI spec / POST /runs with steps): no
+                    # understand, plan, fan-out or replan; only close it out.
+                    return await self._finish_hand_planned(run)
                 run = await self._progress(run)
             return run
+
+    async def _finish_hand_planned(self, run: Run) -> Run:
+        steps = await ledger.list_steps(self.r, self.keys, run.id)
+        if not steps:
+            return run
+        waiting, moving = await self.waiting_and_moving(steps)
+        if moving:
+            return run
+        dead = [s.id for s in steps if s.status == S.DEAD]
+        if dead:
+            status, reason = RunStatus.FAILED, f"dead steps: {', '.join(dead)}"
+        elif all(s.status == S.COMMITTED for s in steps):
+            status, reason = RunStatus.COMPLETED, f"all {len(steps)} hand-planned steps committed"
+        else:
+            status, reason = RunStatus.COMPLETED_PENDING_INPUT, f"waiting: {', '.join(sorted(waiting))}"
+        if status == run.status:
+            return run
+        return await ledger.set_run_status(self.r, self.keys, run.id, status, actor=self.agent_id, reason=reason)
 
     async def _fail(self, run: Run, reason: str) -> Run:
         log.warning("run %s failed: %s", run.id, reason)

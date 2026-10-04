@@ -57,10 +57,16 @@ def search_facts(step: Step, claim: Claim, result: CheckResult) -> dict[str, Any
     if lookup["result"] == "matched":
         _put(out, p, "contact_id", lookup["contact_id"])
         _put(out, p, "crm_url", data.get("contact_url"))
-        _put(out, p, "open_deal", data.get("open_deal"))
-    _put(out, p, "owner", data.get("owner"))
-    _put(out, p, "routing", {k: data.get(k) for k in ("owner", "owner_reason", "region", "account_id", "account_name")
-                             if k in data} or None)
+        _put(out, p, "open_deal", obs.get("open_deal", data.get("open_deal")))
+    # routing: what the check computed from REST (checks/crm.py) wins over the claim
+    routing = obs.get("routing") if isinstance(obs.get("routing"), dict) else None
+    if routing is None:
+        routing = {k: data.get(k) for k in ("owner", "owner_reason", "region", "account_id", "account_name")
+                   if k in data} or None
+        if routing is not None and "account_candidates" in data:
+            routing["account_candidates"] = data["account_candidates"]
+    _put(out, p, "owner", (routing or {}).get("owner") or data.get("owner"))
+    _put(out, p, "routing", routing)
     return out
 
 

@@ -314,6 +314,31 @@ meta-reviewer answers with a `task.artifact` whose data part is:
 - LLM: only the recovery chooser (`BROWSER_LLM_RECOVERY=on`, role worker, schema-bounded to reload|relogin|home|give_up, falls back to the default policy on any error). Off by default to save the shared budget.
 - Demo knob `LEDGER_BROWSER_PAUSE="<checkpoint>:<seconds>[:<kind>]"` (e.g. `after_save:45:crm.create_contact`) holds a step so `make chaos-kill-browser` lands mid-step. `chaos-kill-browser` / `chaos-expire-session` fall back to Redis when the API is not up, and kill only the replica container (`docker kill $(compose ps -q ...)`), never one-off `run` containers.
 
+### Integration notes (wave W2 gate)
+
+- Hand-written plans (CLI `submit` spec, `POST /runs` with `steps`) are created
+  with status `running` and no criteria. The orchestrator treats "running
+  without criteria" as hand-planned: no understand/plan (LLM), no fan-out or
+  replan; it only closes the run (`completed` when every step is committed,
+  `failed` on a dead step). Before this, the live orchestrator spent an LLM
+  request understanding every hand-written run.
+- Run pinning: `submit_goal(..., orchestrator=<agent_id>)` writes hash field
+  `run:{id}.orchestrator` before `run.created`; any other orchestrator skips
+  the run, and one built with `owned_only=True` handles only its pinned runs.
+  `make demo LLM_BACKEND=...` (explicit backend) starts its own in-process
+  orchestrator and pins the run to it, so a scripted demo no longer reaches
+  the live service's OpenRouter backend.
+- Lane lookup (`orchestrator_lanes.lookup_for`) = the search step's claim data
+  overlaid with the verifier-committed lane facts (`<lane>.routing`,
+  `<lane>.lookup`, `<lane>.owner`, `<lane>.open_deal`). Track F's `lookup`
+  fact holds only `{result, match_type, contact_id, candidates}`.
+- `crm.lookup_matches` also observes the playbook routing from REST
+  (`observed.routing` = owner, owner_reason, region, account_id, account_name,
+  account_candidates; `observed.open_deal` for a matched contact).
+  `checks/crm_facts.py` prefers it over the claim. The browser search claim
+  carries no routing, so without this every unmatched browser lane went to
+  review as `unknown_region` and follow-up tasks were owned by the operator.
+
 ## 6. Models (OpenRouter)
 
 Configured by role in `.env`, never hard-coded:
@@ -566,7 +591,10 @@ the run's backlog is replayed first; `?from=now`, `?follow=false`, `?max_s=`.
 `POST /chaos/{fault}` sets `Keys.faults` (default 1 shot; `false_claim` is
 scoped to `browser.espocrm` unless `skill` is given) and emits
 `fault.injected` (phase `injected`); `kill_worker` kills the agent's compose
-container via the docker socket unless `kill: false`. Only the api mounts
+container via the docker socket unless `kill: false`; its event records
+`held_steps` (the steps whose lease the agent holds, read from the lease keys;
+the heartbeat's `current_step` can lag a step) and the report pairs the kill
+with that step's lease expiry and takeover (W2 gate). Only the api mounts
 `/var/run/docker.sock` (joined via `group_add: DOCKER_GID`, process stays uid
 10001); restart emits `config.updated` `{scope: agent, action: restart}`; the
 shell runs as uid 10001 and emits `shell.opened`. Run config is written through

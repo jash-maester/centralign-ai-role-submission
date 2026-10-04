@@ -425,8 +425,21 @@ def lookup_for(lane_steps: list[Step], facts: dict[str, Any]) -> tuple[Step | No
     search = latest(lane_steps, K.CRM_SEARCH_CONTACT, status=S.COMMITTED)
     if search is None:
         return None, {}
+    # The search step's full output (claim data: owner, owner_reason, region,
+    # account_id, account_candidates, open_deal ...) overlaid with the
+    # verifier-committed lane facts (checks/crm_facts.py: lookup is only
+    # {result, match_type, contact_id, candidates}, REST values win).
+    out = dict(step_output(search, facts))
+    routing = facts.get(f"{lane}.routing")
+    if isinstance(routing, dict):
+        out.update({k: v for k, v in routing.items() if v is not None})
     fact = facts.get(f"{lane}.lookup")
-    return search, fact if isinstance(fact, dict) else step_output(search, facts)
+    if isinstance(fact, dict):
+        out.update({k: v for k, v in fact.items() if v is not None})
+    for k in ("owner", "open_deal"):
+        if facts.get(f"{lane}.{k}") is not None:
+            out[k] = facts[f"{lane}.{k}"]
+    return search, out
 
 
 def decision_for(lane: str, review: Step | None, facts: dict[str, Any]) -> dict[str, Any] | None:

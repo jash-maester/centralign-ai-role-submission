@@ -118,8 +118,11 @@ class LocalAgents:
     """Start in-process agents for whatever is missing; stop them on exit."""
 
     def __init__(self, r: aioredis.Redis, keys: Keys, *, need: list[str], data_dir: str | None = None,
-                 force: bool = False) -> None:
+                 force: bool = False, own_orchestrator: bool = False) -> None:
         self.r, self.keys, self.need, self.data_dir, self.force = r, keys, need, data_dir, force
+        # own_orchestrator: always run an in-process orchestrator that handles only
+        # the runs pinned to it (e.g. a scripted-LLM demo next to a live service)
+        self.own_orchestrator = own_orchestrator
         self.started: list[str] = []
         self.orchestrator: Orchestrator | None = None
         self._tasks: list[asyncio.Task] = []
@@ -128,7 +131,7 @@ class LocalAgents:
     async def __aenter__(self) -> LocalAgents:
         live = {} if self.force else await served(self.r, self.keys)
         for what in self.need:
-            if live.get(what):
+            if live.get(what) and not (what == "orchestrator" and self.own_orchestrator):
                 continue
             agent: Any
             if what == Skill.FILE_PARSE.value:
@@ -139,7 +142,9 @@ class LocalAgents:
                 agent = local_verifier(self.r, self.keys, data_dir=self.data_dir, block_ms=500)
             elif what == "orchestrator":
                 agent = self.orchestrator = Orchestrator(self.r, self.keys, agent_id="orchestrator-local",
-                                                         sweep_interval_s=2.0, block_ms=500)
+                                                         sweep_interval_s=2.0, block_ms=500,
+                                                         owned_only=self.own_orchestrator,
+                                                         run_reaper=not live.get(what))
             else:
                 log.warning("no live agent serves %s and it cannot run in-process here", what)
                 continue

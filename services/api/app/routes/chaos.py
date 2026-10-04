@@ -67,6 +67,19 @@ async def clear_fault(fault: FaultName, r=Depends(get_r), keys: Keys = Depends(g
     return {"cleared": gone}
 
 
+async def _leases_held(r, keys: Keys, agent_id: str, run_id: str | None) -> list[str]:
+    if not run_id:
+        return []
+    from ledger_core import ledger, leases
+    from ledger_core.protocol import StepStatus
+
+    out = []
+    for st in await ledger.list_steps(r, keys, run_id):
+        if st.status == StepStatus.LEASED and await leases.holder(r, keys, st.id) == agent_id:
+            out.append(st.id)
+    return out
+
+
 @router.post("/chaos/{fault}")
 async def inject(fault: FaultName, body: FaultBody | None = None, r=Depends(get_r),
                  keys: Keys = Depends(get_keys)) -> dict[str, Any]:
@@ -87,7 +100,10 @@ async def inject(fault: FaultName, body: FaultBody | None = None, r=Depends(get_
         service = AgentCard.model_validate_json(card_raw).container if card_raw else None
         service = service or body.agent_id
         live = await r.get(keys.agent_alive(body.agent_id))
-        payload.update(agent_id=body.agent_id, container=service, held=live)
+        # authoritative: the leases this agent holds right now (the liveness
+        # heartbeat's current_step can lag one step behind)
+        held_steps = await _leases_held(r, keys, body.agent_id, run_id)
+        payload.update(agent_id=body.agent_id, container=service, held=live, held_steps=held_steps)
         if body.kill:
             try:
                 result["kill"] = await asyncio.to_thread(docker_ops.kill, service)

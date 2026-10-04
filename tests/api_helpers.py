@@ -8,7 +8,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from fastapi.testclient import TestClient
+import pytest
+
+# the browser image (make test-browser) collects tests/ without the API deps
+pytest.importorskip("fastapi")
+
+from fastapi.testclient import TestClient  # noqa: E402
 
 from ledger_core.keys import Keys
 

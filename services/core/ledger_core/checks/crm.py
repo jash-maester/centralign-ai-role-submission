@@ -194,6 +194,26 @@ def _ids(items: Any) -> list[str]:
     return [i["id"] if isinstance(i, dict) else str(i) for i in (items or [])]
 
 
+async def _observe_routing(crm: CrmReader, lead: dict[str, Any], truth: dict[str, Any],
+                           observed: dict[str, Any]) -> None:
+    """Playbook routing as REST shows it, so the lane gets an owner whichever
+    skill searched (browser search claims carry no routing). Best effort: a
+    routing read failure never fails the lookup check itself."""
+    from ..routing import owner_for
+
+    try:
+        existing = await crm.get_contact(truth["contact_id"]) if truth.get("contact_id") else None
+        accounts = await crm.accounts_by_name(lead.get("company") or "")
+        d = owner_for(lead, existing, accounts)
+        observed["routing"] = {"owner": d.owner, "owner_reason": d.reason, "region": d.region,
+                               "account_id": d.account_id, "account_name": d.account_name,
+                               "account_candidates": d.candidates or []}
+        if existing:
+            observed["open_deal"] = bool(await crm.open_opportunities_for_contact(existing["id"]))
+    except (CrmError, KeyError, TypeError) as e:
+        observed["routing_error"] = str(e)
+
+
 @register("crm.lookup_matches")
 async def lookup_matches(args: dict[str, Any], expect: dict[str, Any], ctx: CheckContext) -> CheckResult:
     crm = _reader(ctx)
@@ -218,6 +238,7 @@ async def lookup_matches(args: dict[str, Any], expect: dict[str, Any], ctx: Chec
     }
     if accounts is not None:
         observed["accounts"] = [{"id": a["id"], "name": a.get("name")} for a in accounts]
+    await _observe_routing(crm, lead, truth, observed)
 
     if claimed != truth["result"]:
         return CheckResult(False, f"claimed {claimed!r} but REST lookup says {truth['result']!r}"

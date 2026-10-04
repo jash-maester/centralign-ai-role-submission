@@ -436,9 +436,21 @@ def _pair(evs: list[Event], i: int, inj: Event, consumed: Event | None, t0: int)
             held_step = json.loads(held).get("current_step") if isinstance(held, str) else None
         except ValueError:
             held_step = None
-        what = f"killed {agent}" + (f" holding {held_step}" if held_step else "")
-        _, exp = _first(evs, i, lambda x: x.type == EventType.STEP_LEASE_EXPIRED and (
-            x.step_id == held_step if held_step else x.payload.get("worker") in (agent, None)))
+        held_steps = [x for x in inj.payload.get("held_steps") or [] if x] or ([held_step] if held_step else [])
+        what = f"killed {agent}" + (f" holding {', '.join(held_steps)}" if held_steps else "")
+
+        def _last_lessee(j: int, sid: str | None) -> str | None:
+            for k in range(j - 1, -1, -1):
+                if evs[k].type == EventType.STEP_LEASED and evs[k].step_id == sid:
+                    return evs[k].actor
+            return None
+
+        # the step the dead agent held: the recorded lease, else any step whose
+        # last lease before expiring was the killed agent's
+        _, exp = _first(evs, i, lambda x: x.type == EventType.STEP_LEASE_EXPIRED and x.step_id in held_steps)
+        if exp is None:
+            exp = next((evs[j] for j in range(i, len(evs)) if evs[j].type == EventType.STEP_LEASE_EXPIRED
+                        and _last_lessee(j, evs[j].step_id) == agent), None)
         if exp is not None:
             step_id = exp.step_id
             recovery_events.append(exp.id or "")

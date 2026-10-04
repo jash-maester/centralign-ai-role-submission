@@ -114,15 +114,19 @@ async def create_run(r, keys: Keys, body: NewRun, *, replay_of: str | None = Non
         except ValueError as exc:
             raise HTTPException(422, f"invalid config: {exc}") from exc
     run.config_hash = cfg.config_hash()
-    await ledger.create_run(r, keys, run, actor=ACTOR)
-    await run_config.init(r, keys, run.id, cfg, actor=ACTOR)
+    steps = []
     if body.steps:
         try:
             steps = build_steps({"steps": body.steps}, run.id, cfg)
         except (KeyError, ValueError) as exc:
             raise HTTPException(422, f"invalid steps: {exc}") from exc
+        # hand-written plan: born `running` without criteria, so the orchestrator
+        # never runs understand/plan (LLM) on it
+        run.status = RunStatus.RUNNING
+    await ledger.create_run(r, keys, run, actor=ACTOR)
+    await run_config.init(r, keys, run.id, cfg, actor=ACTOR)
+    if steps:
         await ledger.create_steps(r, keys, steps, actor=ACTOR, payload={"source": "hand-written plan (API)"})
-        await ledger.set_run_status(r, keys, run.id, RunStatus.RUNNING, actor=ACTOR)
         await ledger.release_dependents(r, keys, run.id, actor=ACTOR)
     return await ledger.get_run(r, keys, run.id) or run
 

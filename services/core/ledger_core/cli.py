@@ -120,13 +120,16 @@ async def submit_spec(r, keys: Keys, spec: dict[str, Any], *, actor: str = ACTOR
         run.input_sha256 = file_sha256(f)
     cfg = RunConfig(**spec.get("config", {}))
     run.config_hash = cfg.config_hash()
+    steps = build_steps(spec, run.id, cfg)
+    if steps:
+        # A hand-written plan is born `running` without criteria, so the
+        # orchestrator never runs understand/plan (LLM) on it (plans/01 §5 W2 note).
+        run.status = RunStatus.RUNNING
     await ledger.create_run(r, keys, run, actor=actor)
     if spec.get("config"):
         await ledger.set_run_config(r, keys, run.id, cfg, actor=actor)
-    steps = build_steps(spec, run.id, cfg)
     if steps:
         await ledger.create_steps(r, keys, steps, actor=actor, payload={"source": "hand-written spec"})
-        await ledger.set_run_status(r, keys, run.id, RunStatus.RUNNING, actor=actor)
         await ledger.release_dependents(r, keys, run.id, actor=actor)
     return run, steps
 
@@ -418,12 +421,17 @@ async def cmd_demo(a: argparse.Namespace) -> int:
         print("live agents: " + (", ".join(f"{k}={v}" for k, v in sorted(live.items())) or "none"))
         if a.no_local:
             need = []
-        async with LocalAgents(r, keys, need=need) as local:
+        # An explicit LLM_BACKEND for the demo (e.g. scripted) must not be overridden by
+        # a live orchestrator service using its own backend: run our own, pinned to this run.
+        own = bool(os.environ.get("LLM_BACKEND")) and "orchestrator" in need
+        async with LocalAgents(r, keys, need=need, own_orchestrator=own) as local:
             if local.started:
                 print("in-process stand-ins: " + ", ".join(local.started))
             if crm_skill == "browser.espocrm" and not live.get(crm_skill):
                 print("warning: no browser operator is alive; CRM steps will wait (use --crm-write-path api)")
-            run = await submit_goal(r, keys, a.goal, input_file=a.file, config=overrides, actor=ACTOR)
+            pin = local.orchestrator.agent_id if (own and local.orchestrator) else None
+            run = await submit_goal(r, keys, a.goal, input_file=a.file, config=overrides, actor=ACTOR,
+                                    orchestrator=pin)
             print(f"run {run.id} submitted: {a.goal!r} with {a.file}")
             await cmd_tail(r, keys, run.id, from_start=True, until_done=False, timeout=a.timeout,
                            until_run_done=True, quiet=a.quiet)

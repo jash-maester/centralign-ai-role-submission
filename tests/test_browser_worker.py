@@ -197,7 +197,9 @@ async def test_create_contact_and_task_commit_through_browser(r, keys, uniq, adm
     contacts = await contacts_by_email(admin, email)
     assert [c["id"] for c in contacts] == [step.claim.data["contact_id"]]
     facts = await ledger.get_facts(r, keys, run_id)
-    assert facts[f"step:{sid}"]["contact_id"] == contacts[0]["id"]
+    # checks/crm_facts.py (Track F) commits lane facts "<lead prefix>.contact_id"
+    from ledger_core.checks.crm_facts import lead_prefix
+    assert facts[f"{lead_prefix(step)}.contact_id"] == contacts[0]["id"]
 
     subject, due = f"Follow up: Expo {uniq}", "2026-10-06"
     tid = await make_ready(r, keys, task_step(run_id, contacts[0]["id"], subject, due))
