@@ -10,9 +10,9 @@ its recovery.
 
 from __future__ import annotations
 
-
 import pytest
 from e2e_helpers import EXPECTED, Api, Crm, Docker, Mailpit, log, outcomes, wait_for
+
 from test_demo_clean import answer_sam, assert_sent_only_with_approval
 
 pytestmark = pytest.mark.e2e

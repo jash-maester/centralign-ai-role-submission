@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 from e2e_helpers import Api, Crm, Docker, Mailpit, log, wait_for
+
 from test_demo_clean import assert_demo_outcome
 
 pytestmark = pytest.mark.e2e

@@ -239,6 +239,18 @@ def main() -> int:
         time.sleep(1)
         shot(page, "05-escalation-sam-ito")
         card = esc.first
+        # Track O: the meta-reviewer's trail is collapsed by default; expand it to read it.
+        tried = card.locator("[data-testid=esc-tried]")
+        if tried.count():
+            body = tried.locator("[data-collapsible-body]")
+            assert not body.is_visible(), "'What the meta-reviewer tried' starts collapsed"
+            tried.locator("button[aria-expanded]").click()
+            body.wait_for(state="visible", timeout=5000)
+            log(f"meta-reviewer trail expanded: {body.inner_text()[:80]!r}")
+            shot(page, "05a-escalation-tried-expanded")
+            tried.locator("button[aria-expanded]").click()
+        else:
+            errors.append("escalation card has no collapsible 'What the meta-reviewer tried' (data-testid=esc-tried)")
         radios = card.locator("button[role=radio]")
         labels = [radios.nth(i).inner_text() for i in range(radios.count())]
         log(f"Sam Ito options: {labels}")

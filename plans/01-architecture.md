@@ -706,6 +706,9 @@ hard check exists, and its verdict is recorded with its reasoning.
 - **Report**: `decisions[].state` = auto | human | open and
   `decision_counts` {total, auto, human, open}; the summary only counts
   committed decisions ("4 decisions: 3 made automatically, 1 still open.").
+- **W4-extra integration:** `make chaos-kill-browser` finds the lease holder
+  through `GET /agents` inside the api container (W4) and falls back to the
+  agents' Redis heartbeats (Track N); every chaos target takes `RUN=`.
 
 ## 9a. Agent operations
 

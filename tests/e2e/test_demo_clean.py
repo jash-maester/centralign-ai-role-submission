@@ -47,7 +47,7 @@ def assert_demo_outcome(api: Api, crm: Crm, mail: Mailpit, run_id: str) -> dict:
     # every new contact: exactly one contact, one follow-up task, routed owner, due date
     due = next(e for e in api.events(run_id, "run.understood"))["payload"]["event"]["due"]
     users = crm.users()
-    for n, (_, owner, email) in CREATED.items():
+    for _n, (_, owner, email) in CREATED.items():
         hits = crm.contacts_with(email)
         assert len(hits) == 1, (email, hits)
         tasks = [t for t in crm.tasks(hits[0]["id"]) if t["name"] == TASK_SUBJECT]

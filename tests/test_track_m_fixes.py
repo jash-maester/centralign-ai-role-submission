@@ -36,7 +36,7 @@ DRAFTS = {
 
 
 def judge(*scores: float) -> StubLLM:
-    items = [{"id": lane, "score": s, "flags": [], "reasoning": "ok"} for lane, s in zip(DRAFTS, scores)]
+    items = [{"id": lane, "score": s, "flags": [], "reasoning": "ok"} for lane, s in zip(DRAFTS, scores, strict=False)]
     return StubLLM().on("verifier", BatchJudgeVerdict, response={"items": items})
 
 
@@ -83,21 +83,36 @@ async def test_k_batch_auto_approval_commits_per_email_facts(r, keys):
 
 
 async def test_k_batch_human_answer_commits_per_email_facts(r, keys):
+    """Track N (W4-extra): the batch approves the passing draft at once; the
+    failing one (lead:3, 0.70) gets its own lane approval step that escalates,
+    and the human's answer commits approval:lead:3 decided_by human."""
+    from ledger_core.orchestrator_email import _lane_approval_stage
+
     run_id, step = await k_batch(r, keys)
-    with judge(0.95, 0.70).installed():  # below approval_auto_threshold -> escalate
+    with judge(0.95, 0.70).installed():  # lead:3 below approval_auto_threshold -> escalate that email only
         await reviewer(r, keys).run_until_idle()
-    assert (await ledger.get_step(r, keys, step.id)).status == S.INPUT_REQUIRED
+    await Verifier(r, keys, block_ms=200).run_until_idle()
+    assert (await ledger.get_step(r, keys, step.id)).status == S.COMMITTED  # the batch resolves
     facts = await ledger.get_facts(r, keys, run_id)
-    assert approval.approval_for(facts, "lead:1") is None  # nothing approved yet
-    esc = (await escalations.list_escalations(r, keys, run_id=run_id))[0]
+    assert approval.is_approved(approval.approval_for(facts, "lead:1"))
+    assert approval.approval_for(facts, "lead:3") is None  # not decided yet
+    run = await ledger.get_run(r, keys, run_id)
+    single = _lane_approval_stage(run, await ledger.list_steps(r, keys, run_id), facts, defaults())
+    assert [s.lane for s in single] == ["lead:3"]
+    await ledger.create_steps(r, keys, single, actor="test")
+    await ledger.transition(r, keys, single[0].id, S.READY, actor="test", actor_role="orchestrator")
+    await reviewer(r, keys).run_until_idle()
+    assert (await ledger.get_step(r, keys, single[0].id)).status == S.INPUT_REQUIRED
+    [esc] = await escalations.list_escalations(r, keys, run_id=run_id)
+    assert esc.lane == "lead:3"
     await escalations.answer(r, keys, esc.id, "approve", by="pat")
     await reviewer(r, keys).run_until_idle()
     await Verifier(r, keys, block_ms=200).run_until_idle()
-    assert (await ledger.get_step(r, keys, step.id)).status == S.COMMITTED
+    assert (await ledger.get_step(r, keys, single[0].id)).status == S.COMMITTED
     facts = await ledger.get_facts(r, keys, run_id)
-    for lane in DRAFTS:
-        rec = approval.approval_for(facts, lane)
-        assert approval.is_approved(rec) and rec["decided_by"] == "human", rec
+    assert approval.approval_for(facts, "lead:1")["decided_by"] != "human"
+    rec = approval.approval_for(facts, "lead:3")
+    assert approval.is_approved(rec) and rec["decided_by"] == "human", rec
 
 
 async def test_scripted_backend_honours_model_outage(r, keys):

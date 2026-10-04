@@ -244,7 +244,8 @@ the browser: Builder run (`POST /runs`), Dashboard progress, false claim from
 Run controls (verifier rejects), Kill worker on the browser lease holder (lease
 expires, the other operator commits the step), the agent sheet's Restart
 container, Determinism slider to 1.0 (`POST /runs/{id}/determinism`), the Sam
-Ito escalation answered with save-as-rule, approval batch, Report and markdown
+Ito escalation answered with save-as-rule, any email approval that escalates
+(per email since Track N; the clean demo auto-approves all 8), Report and markdown
 export. Screenshots land in `web/screenshots/real/` (git-ignored). Deviations:
 
 - `GET /playbooks/{name}` now exists (additive), so the Content tab reads it.
@@ -253,3 +254,16 @@ export. Screenshots land in `web/screenshots/real/` (git-ignored). Deviations:
 - Before each `make test-gui`: scrub the CRM, empty Mailpit and
   `git checkout playbooks/event-leads.md`, because the saved rule is written
   through the bind mount and would decide Sam on the next run.
+
+## Collapsible long text (Track O, wave W4-extra)
+
+User request: long vertical text takes too much space. `Collapsible` (title,
+count, chevron, collapsed by default) and `ClampText` (N lines, more/less only
+when it overflows) in `web/src/components/ui.tsx`; both print in full. Applied
+to the escalation card's "What the meta-reviewer tried" (collapsed,
+de-duplicated; the confidence line stays visible; context clamped to 2 lines),
+"Handled automatically" reasons (2 lines), the step drawer (observation/reason
+3 lines, postcondition JSON and earlier attempts collapsed, latest attempt
+open) and Report decision/criteria evidence (2 lines). Deviation: the design
+showed these expanded; `make test-gui` now asserts the trail starts collapsed
+and expands it (`data-testid=esc-tried`).
