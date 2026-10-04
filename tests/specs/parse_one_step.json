@@ -1,0 +1,18 @@
+{
+  "goal": "Parse the Signal Summit attendee export into normalised leads",
+  "input_file": "event_attendees.csv",
+  "config": {"lease_ttl_s": 15, "max_attempts": 3},
+  "steps": [
+    {
+      "ref": "parse",
+      "kind": "file.parse",
+      "title": "Parse event_attendees.csv",
+      "inputs": {"file": "event_attendees.csv"},
+      "postcondition": {
+        "check": "file.parsed_rows",
+        "args": {"file": "event_attendees.csv"},
+        "expect": {"required_columns": ["name", "email", "company"], "total_rows": 12}
+      }
+    }
+  ]
+}
