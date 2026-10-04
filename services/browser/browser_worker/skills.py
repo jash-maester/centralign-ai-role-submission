@@ -289,14 +289,21 @@ async def create_contact(
     label: str | None = None,
     on_possible_duplicate: OnDuplicate = "create",
     create_missing_account: bool = True,
+    check: bool = True,
 ) -> SkillResult:
-    """C4: create a contact unless one with this email (or, without email, name+account) exists."""
+    """C4: create a contact unless one with this email (or, without email, name+account) exists.
+
+    check=False skips the existence check (RunConfig.check_then_act off: only to
+    demonstrate duplicates on takeover)."""
     full = f"{first} {last}".strip()
 
     async def body(result: SkillResult) -> None:
         page = op.page
         # ---- check
-        if email:
+        if not check:
+            hits = []
+            result.observe("contact.search", "check skipped (check_then_act off)")
+        elif email:
             hits = await contacts_with_email(op, result, email)
         else:
             rows = await list_search(op, result, "Contact", full)
@@ -429,6 +436,7 @@ async def create_task(
     owner_user_name: str | None = None,
     *,
     label: str | None = None,
+    check: bool = True,
 ) -> SkillResult:
     """C6: follow-up task linked to the contact (parent = Contact), due date and owner set.
 
@@ -446,7 +454,7 @@ async def create_task(
             text = (await link.inner_text()).strip()
             href = await link.get_attribute("href") or ""
             existing.append({"id": href.rsplit("/", 1)[-1], "name": text})
-        same = [t for t in existing if t["name"].strip().lower() == subject.strip().lower()]
+        same = [t for t in existing if check and t["name"].strip().lower() == subject.strip().lower()]
         result.data["existing_tasks"] = existing
         if same:
             result.acted, result.record_id = False, same[0]["id"]
