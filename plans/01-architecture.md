@@ -519,6 +519,55 @@ hard check exists, and its verdict is recorded with its reasoning.
   `completed_pending_input` with the report listing what waits. (This is the
   only name for that status; v1's `completed_pending_approval` is retired.)
 
+### Implementation notes (Track K, drafter + approval batch + mailer)
+
+- Email lanes are a run-level orchestrator stage (`orchestrator_email.py`,
+  registered with the additive `orchestrator_lanes.register_stage()` hook; the
+  orchestrator calls every stage each progress round as
+  `await stage(orch, run, steps, facts, cfg) -> bool`). No LLM in the stage.
+- Draft: when a lane's contact + task are committed, one `email.draft` step
+  (skill email.draft, depends on the task). Excluded per playbook: no email,
+  **open deal** (from the search when matched by email, else one read-only REST
+  call `open_opportunities_for_contact` for contacts matched via review /
+  check-then-act; a contact this run created has none), skipped/unresolved rows
+  (never reach a committed contact). Exclusions: run hash field `email`
+  (`{"excluded": {lane: reason}}`) + a `plan.revised` event with `excluded`.
+  Owner full name from the playbook's `` `user` (Full Name) `` routing lines
+  (fallback CRM user list); sender `<owner>@ledger-demo.test`.
+- Verifier: `email.draft_valid` (deterministic, then the LLM judge, Track F).
+  Facts: `lead:<n>.draft` (to, subject, body, owner, owner_name, from_email,
+  draft_step, judge) and, after a send, `lead:<n>.email` (`checks/email_lanes.py`).
+- Approval: ONE `review.approval` step per run (skill review, lane None) once
+  drafts are committed and no upstream step (parse, CRM, drafts, reviews a live
+  reviewer will take) is moving; a lane resolved later gets a second, smaller
+  batch. Inputs: `items` [{lane, draft_step, draft: "fact:lead:<n>.draft", to,
+  subject, owner, approval_key}], `decision_key` "approval:emails", `threshold`
+  (approval_auto_threshold), `always_ask_human`, `question`, `options`
+  (approve | reject), `policy`, `context.not_emailed`. Postcondition
+  `review.decided` args `{decision_key: "approval:emails", lanes, kind: "approval"}`.
+- Approval facts (`approval.py`, the contract with the meta-reviewer, Track J):
+  `approval:<lane>` = {decision approve|reject, draft_step, to, subject, score,
+  flags, decided_by, ...} and the batch `approval:emails` = {decision
+  approve|reject|partial, items {lane: ...}, approved [..], rejected [..],
+  decided_by, model, threshold, step}. Helpers: `approval.policy_decisions()`
+  (judge >= approval_auto_threshold, no flags, always_ask_human_email ->
+  escalate) and `approval.commit_decisions()`. The judge scores the batch in
+  ONE `judge.judge_drafts()` call (ids = lanes).
+- Send: `email.send` steps (depend on the draft and the approval step) are
+  created only for lanes whose committed approval fact says approve and matches
+  the draft. The mailer re-checks the fact itself (no fact / reject / different
+  draft -> `blocked`, acted=false, nothing sent), sends the committed draft
+  unchanged via aiosmtplib with a deterministic Message-ID
+  (`ledger-<sha>@ledger.local`, from run + lane + draft step), and does
+  check-then-act through the Mailpit API on that Message-ID (a takeover never
+  double-sends). `email.sent` expects `exactly_once`.
+- `RunConfig.dry_run`: the mailer sends nothing and claims `dry_run`;
+  `email.sent` (additive) then verifies that nothing was sent, trusting the
+  claim only when the run config is dry_run.
+- Run criteria: `email.sent` is swept per lane (`checks/email_lanes.py`):
+  verified when every lane that should get an email has a committed send
+  (approval rejections count as handled; excluded lanes are listed).
+
 ## 9a. Agent operations
 
 - **Config:** `GET/PUT /agents/{id}/config` for prompt text (versioned),
