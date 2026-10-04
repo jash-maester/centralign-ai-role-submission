@@ -27,6 +27,7 @@ NEW_EMAILS = ["priya@northwind.com", "lena@kestrel-labs.io", "dana@helixbio.com"
               "omar@brightline.co", "grace.wu@tallgrass.com", "sam@lumen.io"]
 SEEDED = ["marcus.lee@acme.com", "hannah@fieldstone.dev"]
 SUBJECT = "Follow up: Signal Summit"
+EXTRA_KEEP = {"benjamin@quarrydata.com"}  # seeded addresses of contacts a review may enrich
 
 # plans/02 "Demo data": expected outcome and owner per lane (rows 7, 9, 11 wait for review in W2)
 EXPECTED = {
@@ -56,9 +57,21 @@ async def _scrub_crm() -> None:
             for c in await contacts(e):
                 await drop_tasks(c["id"])
                 await a.delete(f"/Contact/{c['id']}")
-        for e in SEEDED:
+        for e in SEEDED + ["benjamin@quarrydata.com"]:
             for c in await contacts(e):
                 await drop_tasks(c["id"])
+        # Track J: a resolved review (Ben Ortiz -> match_existing) adds the badge email
+        # as a secondary address on the seeded Benjamin; drop it so the next run sees
+        # the probable match again.
+        for c in await contacts("ben.ortiz@gmail.com"):
+            full = (await a.get(f"/Contact/{c['id']}")).json()
+            keep = [x for x in full.get("emailAddressData") or [] if x.get("emailAddress", "").lower() in EXTRA_KEEP]
+            if keep:
+                keep[0]["primary"] = True
+                await a.put(f"/Contact/{c['id']}", json={"emailAddressData": keep, "emailAddress": keep[0]["emailAddress"]})
+            else:
+                await drop_tasks(c["id"])
+                await a.delete(f"/Contact/{c['id']}")
 
 
 @pytest.fixture
