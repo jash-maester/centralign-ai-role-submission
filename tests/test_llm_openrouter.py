@@ -6,7 +6,6 @@ import json
 
 import httpx
 import pytest
-respx = pytest.importorskip("respx")  # not in the browser image (make test-browser collects tests/)
 from pydantic import BaseModel
 
 from ledger_core import llm, run_config
@@ -16,6 +15,8 @@ from ledger_core.llm import LLMBudgetExhausted, LLMCacheMiss, LLMError, LLMSpend
 from ledger_core.llm_openrouter import OUTAGE_MODEL, OpenRouterBackend, utc_day
 from ledger_core.protocol import EventType, FaultName
 from ledger_core.settings import Settings
+
+respx = pytest.importorskip("respx")  # absent in the browser image (make test-browser collects all tests)
 
 BASE = "https://openrouter.test/api/v1"
 M1, M2 = "acme/primary:free", "other/fallback:free"
