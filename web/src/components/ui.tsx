@@ -1,5 +1,5 @@
 /** Small shared primitives styled after the designs. */
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 export function useNow(ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -137,6 +137,72 @@ export function KV({ k, v, kw = 130 }: { k: ReactNode; v: ReactNode; kw?: number
       <span className="text-fg3">{k}</span>
       <span className="[overflow-wrap:anywhere]">{v}</span>
     </div>
+  );
+}
+
+/**
+ * Collapsible block: a header row (title, count, chevron) with the body hidden
+ * until opened. Long, low-priority detail (reasoning trails, earlier attempts,
+ * raw JSON) folds away so the decision itself stays on screen. Prints expanded.
+ */
+export function Collapsible({ title, count, defaultOpen = false, children, className = '', bodyClassName = 'flex flex-col gap-[5px] pt-1.5', testId }: {
+  title: ReactNode;
+  count?: number;
+  defaultOpen?: boolean;
+  children: ReactNode;
+  className?: string;
+  bodyClassName?: string;
+  testId?: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={className} data-testid={testId}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-1.5 border-0 bg-transparent p-0 text-left text-xs+ font-medium text-fg2 cursor-pointer select-none"
+      >
+        <span className="mono text-2xs text-fg3 w-2.5 transition-transform duration-150" style={{ transform: open ? 'rotate(90deg)' : 'none' }}>▸</span>
+        <span>{title}</span>
+        {count != null && <span className="mono text-2xs text-fg3 font-normal">{count}</span>}
+        <span data-noprint className="ml-auto mono text-2xs text-fg3 font-normal">{open ? 'hide' : 'show'}</span>
+      </button>
+      <div data-collapsible-body className={bodyClassName} style={{ display: open ? undefined : 'none' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Long paragraph clamped to `lines` lines with a more/less toggle. The toggle
+ * only appears when the text actually overflows. Prints in full.
+ */
+export function ClampText({ text, lines = 2, className = '' }: { text: ReactNode; lines?: number; className?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text, lines]);
+  return (
+    <span className="flex flex-col items-start min-w-0">
+      <span ref={ref} className={`${open ? '' : 'ldg-clamp'} ${className}`} style={open ? undefined : { WebkitLineClamp: lines }}>
+        {text}
+      </span>
+      {(overflows || open) && (
+        <button type="button" data-noprint onClick={() => setOpen((o) => !o)} className="border-0 bg-transparent p-0 mono text-2xs text-accent cursor-pointer">
+          {open ? 'less' : 'more'}
+        </button>
+      )}
+    </span>
   );
 }
 

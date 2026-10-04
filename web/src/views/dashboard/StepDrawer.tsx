@@ -5,7 +5,7 @@ import type { Attempt, Step } from '../../api/types';
 import { useLedger } from '../../store/store';
 import { buildLanes, fmtClock, shortModel } from '../../lib/derive';
 import { stepVisual } from '../../lib/states';
-import { Chip, EscButton, KV, Kicker, Sheet } from '../../components/ui';
+import { Chip, ClampText, Collapsible, EscButton, KV, Kicker, Sheet } from '../../components/ui';
 
 /** Readable postconditions per registered check (plans/01 §8). */
 export const POSTCONDITION_TEXT: Record<string, string> = {
@@ -57,10 +57,10 @@ function AttemptCard({ a, step, isLast }: { a: Attempt; step: Step; isLast: bool
         <span className="text-fg3">{a.model ? shortModel(a.model) : '— (no LLM)'}{a.started_at ? ` · ${fmtClock(a.started_at)}` : ''}</span>
       </div>
       <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm+ leading-[1.45]">
-        <span className="mono text-xs text-fg3">observation</span><span className="text-fg2">{obsText(a)}</span>
+        <span className="mono text-xs text-fg3">observation</span><ClampText text={obsText(a)} lines={3} className="text-fg2" />
         <span className="mono text-xs text-fg3">claim</span><span style={{ color: 'var(--s-claimed)' }}>{a.claim ? `${a.claim.acted === false ? 'already done (check-then-act) · ' : ''}"${a.claim.summary || 'done'}"` : expired ? '— (heartbeat lost)' : '— (in progress)'}</span>
         <span className="mono text-xs text-fg3">verdict</span><span className="font-medium" style={{ color: vc }}>{verdict}{a.verdict?.check ? <span className="mono text-xs text-fg3 font-normal"> · {a.verdict.check}</span> : null}</span>
-        <span className="mono text-xs text-fg3">reason</span><span className="text-fg2">{reason}</span>
+        <span className="mono text-xs text-fg3">reason</span><ClampText text={reason} lines={3} className="text-fg2" />
       </div>
       {(shots.length > 0 || (isBrowserKind(step.kind) && a.claim)) && (
         <div className="grid grid-cols-2 gap-2">
@@ -132,7 +132,9 @@ export function StepDrawer() {
             <div className="flex flex-col gap-2">
               <Kicker>Postcondition</Kicker>
               <span className="text-base leading-normal text-pretty">{(pc && POSTCONDITION_TEXT[pc.check]) ?? 'Registered check.'}</span>
-              <pre className="m-0 px-3 py-2.5 rounded-lg bg-panel2 border border-line mono text-xs text-fg2 whitespace-pre-wrap">{JSON.stringify(pc ?? {}, null, 2)}</pre>
+              <Collapsible title="JSON" testId="postcondition-json">
+                <pre className="m-0 px-3 py-2.5 rounded-lg bg-panel2 border border-line mono text-xs text-fg2 whitespace-pre-wrap">{JSON.stringify(pc ?? {}, null, 2)}</pre>
+              </Collapsible>
             </div>
             <div className="flex flex-col gap-2.5">
               <Kicker>Attempts</Kicker>
@@ -141,7 +143,13 @@ export function StepDrawer() {
                   {step.status === 'ready' ? 'Ready. Waiting for a worker to lease it.' : step.status === 'input_required' ? 'Escalated: waiting on your decision in Needs your attention.' : step.status === 'review_required' ? 'With the meta-reviewer.' : step.status === 'replanned' ? 'Superseded by a replan or a skip decision.' : 'Not started. Waiting on earlier steps.'}
                 </span>
               )}
-              {hist.map((a, i) => <AttemptCard key={`${a.attempt}-${i}`} a={a} step={step} isLast={i === hist.length - 1} />)}
+              {/* The latest attempt stays open; earlier ones fold away (they still explain retries and takeovers). */}
+              {hist.length > 1 && (
+                <Collapsible title="Earlier attempts" count={hist.length - 1} bodyClassName="flex flex-col gap-2.5 pt-2.5" testId="earlier-attempts">
+                  {hist.slice(0, -1).map((a, i) => <AttemptCard key={`${a.attempt}-${i}`} a={a} step={step} isLast={false} />)}
+                </Collapsible>
+              )}
+              {hist.length > 0 && <AttemptCard a={hist[hist.length - 1]} step={step} isLast />}
             </div>
           </>
         )}

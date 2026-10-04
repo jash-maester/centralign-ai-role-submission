@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Escalation } from '../../api/types';
 import { useLedger } from '../../store/store';
 import { decisions, handledAutomatically } from '../../lib/derive';
-import { Dot } from '../../components/ui';
+import { ClampText, Collapsible, Dot } from '../../components/ui';
 
 export function EscalationCard({ esc }: { esc: Escalation }) {
   const answer = useLedger((s) => s.answerEscalation);
@@ -12,18 +12,21 @@ export function EscalationCard({ esc }: { esc: Escalation }) {
   const [saveRule, setSaveRule] = useState(!isApproval);
   const [busy, setBusy] = useState(false);
   const below = esc.confidence < esc.threshold;
+  // The trail repeats CRM evidence verbatim in places; show each line once.
+  const tried = [...new Set(esc.tried ?? [])];
   return (
     <div data-testid="escalation" className="bg-panel rounded-[10px] shadow-card overflow-hidden border" style={{ borderColor: 'color-mix(in oklch, var(--s-input) 35%, var(--line))' }}>
       <div className="px-[18px] pt-4 pb-3 flex flex-col gap-[5px]">
         <span className="mono text-2xs tracking-[0.06em]" style={{ color: 'var(--s-input)' }}>ESCALATED · META-REVIEWER UNSURE</span>
         <span className="text-lg font-semibold">{esc.question}</span>
-        {esc.context && <span className="text-sm+ text-fg2 text-pretty">{esc.context}</span>}
+        {esc.context && <ClampText text={esc.context} lines={2} className="text-sm+ text-fg2 text-pretty" />}
       </div>
       <div className="mx-[18px] mb-3 px-3 py-2.5 rounded-lg bg-panel2 flex flex-col gap-[5px]">
-        <span className="text-xs+ font-medium text-fg2">What the meta-reviewer tried</span>
-        {(esc.tried ?? []).map((t, i) => (
-          <span key={i} className="grid grid-cols-[12px_minmax(0,1fr)] gap-1.5 text-sm text-fg2 leading-[1.45]"><span className="text-fg3">·</span><span>{t}</span></span>
-        ))}
+        <Collapsible title="What the meta-reviewer tried" count={tried.length} testId="esc-tried">
+          {tried.map((t, i) => (
+            <span key={i} className="grid grid-cols-[12px_minmax(0,1fr)] gap-1.5 text-sm text-fg2 leading-[1.45]"><span className="text-fg3">·</span><span>{t}</span></span>
+          ))}
+        </Collapsible>
         <span className="mono text-xs" style={{ color: below ? 'var(--s-rejected)' : 'var(--fg2)' }}>
           confidence {esc.confidence.toFixed(2)} {below ? '<' : '≥'} {esc.threshold.toFixed(2)} (auto threshold)
         </span>
@@ -115,7 +118,7 @@ export function NeedsAttention() {
                 <span className="w-[7px] h-[7px] rounded-[2px] mt-[5px]" style={{ background: a.c }} />
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-sm+ font-medium">{a.title}</span>
-                  {a.why && <span className="text-xs+ text-fg3 text-pretty">{a.why}</span>}
+                  {a.why && <ClampText text={a.why} lines={2} className="text-xs+ text-fg3 text-pretty" />}
                 </div>
                 <span className="mono text-2xs text-fg3 whitespace-nowrap pt-0.5">{a.by}</span>
               </div>
