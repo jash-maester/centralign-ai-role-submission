@@ -280,11 +280,23 @@ class Operator:
             pass
 
     async def wait_for(self, locator: Any, timeout_ms: int | None = None) -> None:
-        """Wait for `locator`, but fail fast with SessionLost if the login form shows instead."""
+        """Wait for `locator`, but fail fast with SessionLost if the login form shows instead.
+
+        Espo's "leave the form?" confirm (an earlier form still counted as dirty)
+        is answered on the way: we only navigate away from forms we are done with.
+        """
         login = sel.login_button(self.page)
-        await locator.first.or_(login).first.wait_for(state="visible", timeout=timeout_ms or self.timeout_ms)
-        if await login.is_visible():
-            raise SessionLost("login page shown")
+        leave = sel.leave_form_yes(self.page)
+        for _ in range(3):
+            target = locator.first.or_(login).or_(leave).first
+            await target.wait_for(state="visible", timeout=timeout_ms or self.timeout_ms)
+            if await leave.is_visible():
+                await leave.click()
+                continue
+            if await login.is_visible():
+                raise SessionLost("login page shown")
+            return
+        raise UIError("leave-form confirm kept reappearing")
 
     # ------------------------------------------------------------------ hooks
     def on_checkpoint(self, name: str, fn: Checkpoint) -> None:
