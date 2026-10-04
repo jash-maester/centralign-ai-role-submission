@@ -14,6 +14,8 @@ export class ApiError extends Error {
 }
 
 const enc = encodeURIComponent;
+/** GET /runs/{id}/events caps `limit` at 1000. */
+export const EVENTS_PAGE = 1000;
 
 export class HttpClient implements ApiClient {
   readonly mode = 'http' as const;
@@ -44,12 +46,23 @@ export class HttpClient implements ApiClient {
   replayRun = (id: string) => this.req<Run>('POST', `/runs/${enc(id)}/replay`);
   getSteps = async (id: string) => asList<Step>(await this.req('GET', `/runs/${enc(id)}/steps`), 'steps');
   getStep = (id: string, stepId: string) => this.req<Step>('GET', `/runs/${enc(id)}/steps/${enc(stepId)}`);
+  /** Oldest first. The API pages at 1000 (`{events, next}`); larger limits follow `next`. */
   getEvents = async (id: string, opts: { after?: string; limit?: number } = {}) => {
-    const q = new URLSearchParams();
-    if (opts.after) q.set('after', opts.after);
-    if (opts.limit) q.set('limit', String(opts.limit));
-    const qs = q.toString();
-    return asList<LedgerEvent>(await this.req('GET', `/runs/${enc(id)}/events${qs ? '?' + qs : ''}`), 'events');
+    const want = opts.limit ?? 200;
+    const out: LedgerEvent[] = [];
+    let after = opts.after;
+    while (out.length < want) {
+      const q = new URLSearchParams();
+      if (after) q.set('after', after);
+      q.set('limit', String(Math.min(EVENTS_PAGE, want - out.length)));
+      const raw = await this.req<unknown>('GET', `/runs/${enc(id)}/events?${q}`);
+      const page = asList<LedgerEvent>(raw, 'events');
+      out.push(...page);
+      const next = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as { next?: string | null }).next : null;
+      if (!next || !page.length) break;
+      after = next;
+    }
+    return out;
   };
   getFacts = async (id: string) => asFacts(await this.req('GET', `/runs/${enc(id)}/facts`));
   getReport = async (id: string) => asReport(await this.req('GET', `/runs/${enc(id)}/report`), id);

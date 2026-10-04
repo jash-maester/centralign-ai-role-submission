@@ -219,13 +219,13 @@ export default function ReportView() {
         }>
           <Box className="overflow-x-auto">
             <div className="min-w-[960px]">
-              <div className={`grid gap-3 ${HEAD}`} style={{ gridTemplateColumns: '30px 56px minmax(150px,1.3fr) 130px 80px 110px 120px minmax(150px,1.4fr) 60px' }}>
+              <div className={`grid gap-3 ${HEAD}`} style={{ gridTemplateColumns: '30px 56px minmax(150px,1.2fr) minmax(150px,1.3fr) 76px 92px 84px minmax(140px,1fr) 56px' }}>
                 <span>#</span><span /><span>Lead</span><span>Outcome</span><span>Owner</span><span>Task</span><span>Email</span><span>Decided / verified</span><span>CRM</span>
               </div>
               {leads.map((l) => {
                 const has = l.outcome === 'created' || l.outcome === 'updated';
                 return (
-                  <div key={`${l.n}-${l.name}`} className="grid gap-3 items-center px-4 py-[9px] border-b border-line" style={{ gridTemplateColumns: '30px 56px minmax(150px,1.3fr) 130px 80px 110px 120px minmax(150px,1.4fr) 60px' }}>
+                  <div key={`${l.n}-${l.name}`} className="grid gap-3 items-center px-4 py-[9px] border-b border-line" style={{ gridTemplateColumns: '30px 56px minmax(150px,1.2fr) minmax(150px,1.3fr) 76px 92px 84px minmax(140px,1fr) 56px' }}>
                     <span className="mono text-xs text-fg3">{l.n}</span>
                     {l.screenshot ? (
                       <a href={api().evidenceUrl(l.screenshot)} target="_blank" rel="noreferrer"><img src={api().evidenceUrl(l.screenshot)} alt={`row ${l.n}`} className="w-14 h-[34px] rounded border border-line object-cover bg-panel2" /></a>
@@ -236,8 +236,11 @@ export default function ReportView() {
                       <span className="text-base font-medium truncate">{l.name}</span>
                       <span className="mono text-2xs text-fg3 truncate">{l.company || '—'} · {l.email || '—'}</span>
                     </div>
-                    <span><span className="inline-flex items-center px-2 py-0.5 rounded-[10px] text-xs font-medium whitespace-nowrap tint-11" style={{ ['--c' as string]: OUT_C[l.outcome] }}>{l.outcome_detail ?? l.outcome}</span></span>
-                    <span className="mono text-xs+ text-fg2">{l.owner ?? '—'}</span>
+                    <div className="flex flex-col items-start gap-0.5 min-w-0" title={l.outcome_detail ?? undefined}>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-[10px] text-xs font-medium whitespace-nowrap tint-11" style={{ ['--c' as string]: OUT_C[l.outcome] }}>{OUT_LABEL[l.outcome] ?? l.outcome}</span>
+                      {l.outcome_detail && <span data-testid="outcome-detail" className="text-2xs text-fg3 truncate max-w-full">{l.outcome_detail}</span>}
+                    </div>
+                    <span className="mono text-xs+ text-fg2 truncate">{l.owner ?? '—'}</span>
                     <span className="mono text-xs+ text-fg2 truncate">{l.task_due ?? '—'}</span>
                     <span className="mono text-xs whitespace-nowrap" style={{ color: /^sent/.test(l.email_status ?? '') ? 'var(--s-committed)' : l.email_status === 'waiting' ? 'var(--s-input)' : 'var(--fg3)' }}>{l.email_status ?? '—'}</span>
                     <div className="flex flex-col min-w-0">
