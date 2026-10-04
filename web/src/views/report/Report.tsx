@@ -12,6 +12,7 @@ import { Count, PillButton } from '../../components/ui';
 const OUT_C: Record<LeadOutcome, string> = { created: 'var(--s-committed)', updated: 'var(--s-leased)', skipped: 'var(--fg3)', waiting: 'var(--s-input)', failed: 'var(--s-rejected)' };
 const OUT_LABEL: Record<LeadOutcome, string> = { created: 'Created', updated: 'Updated', skipped: 'Skipped', waiting: 'Waiting on you', failed: 'Failed' };
 const mmss = (s: number | null | undefined) => (s == null ? '—' : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`);
+const f2 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(2));
 const ms = (v: number | null | undefined) => (v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`);
 const ktok = (v: number | null | undefined) => (v == null ? '—' : v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));
 const HEAD = 'px-4 py-[9px] bg-panel2 border-b border-line text-xs font-medium text-fg3 uppercase tracking-[0.04em]';
@@ -259,7 +260,9 @@ export default function ReportView() {
           <Box>
             {r.decisions.length === 0 && <div className="px-4 py-3 text-sm text-fg3">No review decisions in this run.</div>}
             {r.decisions.map((d, i) => {
-              const auto = !d.escalated && d.decided_by !== 'you' && d.confidence >= d.threshold;
+              // an open (undecided) review has no confidence/threshold yet
+              const conf = d.confidence ?? null, thr = d.threshold ?? null;
+              const auto = !d.escalated && d.decided_by !== 'you' && conf != null && thr != null && conf >= thr;
               return (
                 <div key={i} className="grid gap-4 items-center px-4 py-3 border-b border-line" style={{ gridTemplateColumns: 'minmax(0,1.2fr) 200px minmax(0,1fr) 110px' }}>
                   <div className="flex flex-col gap-0.5 min-w-0">
@@ -268,10 +271,10 @@ export default function ReportView() {
                   </div>
                   <div className="flex flex-col gap-1">
                     <div className="relative h-2 rounded bg-bg2">
-                      <div className="absolute left-0 top-0 bottom-0 rounded" style={{ width: `${Math.round(d.confidence * 100)}%`, background: auto ? 'var(--s-committed)' : 'var(--s-input)' }} />
-                      <div className="absolute -top-[3px] -bottom-[3px] w-0.5" style={{ left: `${Math.round(d.threshold * 100)}%`, background: 'var(--fg)' }} />
+                      <div className="absolute left-0 top-0 bottom-0 rounded" style={{ width: `${Math.round((conf ?? 0) * 100)}%`, background: auto ? 'var(--s-committed)' : 'var(--s-input)' }} />
+                      {thr != null && <div className="absolute -top-[3px] -bottom-[3px] w-0.5" style={{ left: `${Math.round(thr * 100)}%`, background: 'var(--fg)' }} />}
                     </div>
-                    <span className="mono text-2xs text-fg3">{d.forced_reason ? `${d.confidence.toFixed(2)} · ${d.forced_reason}` : `${d.confidence.toFixed(2)} vs ${d.threshold.toFixed(2)}`}</span>
+                    <span className="mono text-2xs text-fg3">{d.forced_reason ? `${f2(conf)} · ${d.forced_reason}` : `${f2(conf)} vs ${f2(thr)}`}</span>
                   </div>
                   <span className="text-sm+ text-pretty">{d.result}</span>
                   <span className="mono text-xs text-fg3 text-right">{d.decided_by}</span>

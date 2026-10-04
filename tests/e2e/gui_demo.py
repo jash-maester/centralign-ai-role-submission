@@ -106,6 +106,8 @@ def main() -> int:
         time.sleep(1.5)
         st = run_state(page, run_id)
         log(f"progress: {st.get('steps_committed')}/{st.get('steps_total')} committed, status {st.get('status')}")
+        strip = page.inner_text("[data-testid=run-strip]")
+        assert st.get("status") in strip, f"run strip shows a stale status: {strip[:60]!r} vs {st.get('status')}"
         shot(page, "03-dashboard-progress")
 
         # 3. Inject a false claim from Run controls ------------------------------------------
@@ -151,18 +153,36 @@ def main() -> int:
         shot(page, "06-escalation-answered")
 
         # 5. Run settles; Report ----------------------------------------------------------------
+        answered: set[str] = set()
+        pending_report = False
+
         def settled():
+            nonlocal pending_report
             s = run_state(page, run_id)
-            if s.get("status") in ("completed", "completed_pending_input", "failed"):
-                return s
-            # approvals may need a human: answer them so the run can finish
-            for e in api_json(page, f"/escalations?run_id={run_id}&status=open") or []:
-                card = page.locator("[data-testid=escalation]").first
-                if card.count():
-                    card.locator("button[role=radio]").first.click()
+            open_esc = [e for e in api_json(page, f"/escalations?run_id={run_id}&status=open") or []
+                        if e.get("id") not in answered]
+            if not open_esc:
+                return s if s.get("status") in ("completed", "completed_pending_input", "failed") else None
+            if s.get("status") == "completed_pending_input" and not pending_report:
+                # the Report must render while a decision is still open
+                pending_report = True
+                page.locator("[data-testid=nav-report]:visible").click()
+                page.wait_for_selector("[data-testid=report]", timeout=20000)
+                time.sleep(1)
+                shot(page, "07a-report-pending")
+                page.locator("[data-testid=nav-dashboard]:visible").click()
+                page.wait_for_selector("[data-testid=run-strip]")
+            # the email approval batch waits on a human: approve it from the card
+            card = page.locator("[data-testid=escalation]").first
+            if card.count():
+                card.scroll_into_view_if_needed()
+                shot(page, "07b-approval-escalation")
+                card.locator("button[role=radio]").first.click()
+                with page.expect_response(lambda r: "/api/escalations/" in r.url and r.request.method == "POST"):
                     card.locator("button", has_text="Commit").click()
-                    log(f"answered escalation {e.get('id')} ({e.get('question', '')[:60]})")
-                    time.sleep(2)
+                answered.add(open_esc[0].get("id"))
+                log(f"answered escalation {open_esc[0].get('id')} ({open_esc[0].get('question', '')[:60]})")
+                time.sleep(2)
             return None
 
         st = wait_until(settled, TIMEOUT_S, every=3, what="the run to settle")

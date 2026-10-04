@@ -159,6 +159,11 @@ export const useLedger = create<Store>()((set, get) => ({
         onEvent: (ev) => get().applyEvent(ev),
         onStatus: (s) => set({ stream: s }),
       });
+      // The snapshots above are fetched in parallel, so the run and steps can be
+      // older than the last event we resume after (a brand-new run moves
+      // understanding -> running within milliseconds). Those transitions are
+      // never replayed; refetch once now that the stream is subscribed.
+      get().refetch({ run: true, steps: true });
     } catch (e) {
       set({ loading: false });
       get().toast(`Could not load run ${runId}: ${errText(e)}`, 'error');

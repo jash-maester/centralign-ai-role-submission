@@ -362,8 +362,9 @@ export interface ReportFault {
 export interface ReportDecision {
   title: string;
   evidence: string[];
-  confidence: number;
-  threshold: number;
+  /** null while the review is still open */
+  confidence: number | null;
+  threshold: number | null;
   result: string;
   decided_by: string;
   escalated?: boolean;
