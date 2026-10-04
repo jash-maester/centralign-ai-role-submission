@@ -216,6 +216,15 @@ async def test_invalid_plan_is_reasked_with_the_problems():
     assert "unknown check" not in calls[0].text
 
 
+async def test_informational_per_lead_noise_costs_no_reask():
+    # a live model once listed skills in per_lead; that must not burn a request
+    noisy = {**PLAN, "per_lead": ["crm.search_contact", "browser.espocrm", "review", "crm.create_task"]}
+    s = stub(plan={"response": noisy})
+    with s.installed():
+        plan, asks = await make_plan(GOAL, [], _pb(), input_file="event_attendees.csv")
+    assert asks == 1 and plan.per_lead == ["crm.search_contact", "crm.create_task"]
+
+
 async def test_invalid_criteria_are_reasked_then_give_up():
     bad = {"criteria": [{"id": "c1", "text": "x", "check": "crm.vibes"}]}
     s = stub(understanding={"response": bad})

@@ -190,9 +190,8 @@ def validate_plan(plan: Plan, *, input_file: str | None) -> list[str]:
         problems.append(f"the run has input file {input_file!r}: the plan needs a file.parse step for it")
     if _has_cycle(plan):
         problems.append("depends_on has a cycle")
-    for k in plan.per_lead:
-        if k not in {x.value for x in StepKind}:
-            problems.append(f"per_lead: unknown kind {k!r}")
+    # per_lead is informational (fan-out is deterministic code): unknown entries
+    # are dropped by normalise_plan rather than costing a re-ask.
     return problems
 
 
@@ -219,7 +218,10 @@ def _has_cycle(plan: Plan) -> bool:
 
 
 def normalise_plan(plan: Plan, *, input_file: str | None) -> Plan:
-    """Fill harmless gaps after validation: the parse step's file arg."""
+    """Fill harmless gaps after validation: the parse step's file arg; keep
+    only known step kinds in the informational per_lead list."""
+    known = {x.value for x in StepKind}
+    plan.per_lead = [k for k in dict.fromkeys(plan.per_lead) if k in known]
     for s in plan.steps:
         if s.kind == StepKind.FILE_PARSE.value and input_file:
             s.inputs.setdefault("file", input_file)
