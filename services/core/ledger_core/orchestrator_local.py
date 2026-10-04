@@ -11,6 +11,7 @@ in-process stand-in built from the real pieces:
                    CRM client (verifier key) and Mailpit, and the orchestrator's
                    replan-aware reject policy (Track F ships the real wiring)
 - orchestrator  -> orchestrator.Orchestrator (when the service is not running)
+- review        -> meta_reviewer.MetaReviewer (Track J; read-only CRM key)
 
 browser.espocrm cannot run in this image (Playwright lives in the browser
 image); a run routed to it needs worker-browser-* up.
@@ -32,7 +33,7 @@ from .orchestrator_replan import reject_policy
 from .postconditions import CheckContext
 from .protocol import CRM_KINDS, Skill, Step, StepKind
 from .settings import get_settings
-from .verifier import Verifier, verifier_card
+from .verifier import Verifier, default_context, verifier_card
 from .worker_base import WorkContext, Worker, WorkResult, worker_card
 
 log = logging.getLogger("ledger.local")
@@ -84,12 +85,12 @@ def crm_context_factory(data_dir: str | None = None):
                 state["mailpit"] = MailpitClient()
             except Exception:  # noqa: BLE001
                 state["mailpit"] = None
-        return CheckContext(
-            run_id=step.run_id, step_id=step.id, claim=dict(step.claim.data) if step.claim else None,
-            facts=await ledger.get_facts(r, keys, step.run_id), crm=state["crm"], mailpit=state["mailpit"],
-            data_dir=data_dir or get_settings().data_dir,
-            extra={"step": step, "claim": step.claim, "inputs": step.inputs},
-        )
+        # Track J: start from the verifier's default context (extra r/keys/config/playbook,
+        # which review.decided needs) and add the world handles.
+        ctx = await default_context(step, r, keys)
+        ctx.crm, ctx.mailpit = state["crm"], state["mailpit"]
+        ctx.data_dir = data_dir or get_settings().data_dir
+        return ctx
 
     return factory
 
@@ -137,6 +138,10 @@ class LocalAgents:
                 agent = api_worker(self.r, self.keys, block_ms=500)
             elif what == "verifier":
                 agent = local_verifier(self.r, self.keys, data_dir=self.data_dir, block_ms=500)
+            elif what == Skill.REVIEW.value:
+                from .meta_reviewer import MetaReviewer
+
+                agent = MetaReviewer(self.r, self.keys, agent_id="meta-reviewer-local", block_ms=500)
             elif what == "orchestrator":
                 agent = self.orchestrator = Orchestrator(self.r, self.keys, agent_id="orchestrator-local",
                                                          sweep_interval_s=2.0, block_ms=500)
