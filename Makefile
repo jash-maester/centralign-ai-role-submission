@@ -45,7 +45,8 @@ test-crm:  ## CRM integration tests only
 	$(DC) run --rm test pytest -p no:cacheprovider -q -m crm tests $(ARGS)
 
 test-browser:  ## Playwright tests inside the browser image
-	$(DC) run --rm --no-deps -v ./tests:/repo/tests:ro -e PYTHONPATH=/app worker-browser-1 \
+	$(DC) run --rm --no-deps -v ./tests:/repo/tests:ro -v ./services/browser/browser_worker:/app/browser_worker:ro \
+		-e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 worker-browser-1 \
 		python -m pytest -p no:cacheprovider -q -m browser /repo/tests $(ARGS)
 
 test-live:  ## smoke tests that call OpenRouter (uses the daily free budget)
