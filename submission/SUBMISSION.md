@@ -172,9 +172,23 @@ ever be sent).
 
 ## 3. Demo
 
-- **Videos:** [`demo/`](demo/): a full walkthrough of the running system (Builder run,
-  injected false claim rejected by the verifier, killed worker taken over with a higher
-  fencing token, the escalation answered, Mailpit, evidence report) and a short teaser.
+- **[`demo/demo-walkthrough.mp4`](demo/demo-walkthrough.mp4)** (3:08, 1080p, captions, no
+  voiceover): one continuous real take of a run driven through the GUI. Builder (one-line
+  goal → Run, agents animating around the ledger) → Dashboard (steps, criteria, live
+  ledger) → **false claim injected**: the verifier rejects it ("no CRM contact has email
+  omar@brightline.co") and the retry commits → **browser worker killed** while holding a
+  lease: the reaper expires the lease and worker-browser-2 takes over with fencing token 2
+  → step drawers showing both attempts → the Sam Ito escalation (what the meta-reviewer
+  tried, 0.52 < 0.80) answered with "save as playbook rule" → Mailpit inbox → evidence
+  report (every row, decisions, what went wrong and how it recovered, reproduce block).
+  Long waits are sped up (marked "N× speed"). Recorded on the deterministic scripted
+  backend; the same flow on live models is described under
+  [Live run on real models](#live-run-on-real-models).
+- **[`demo/teaser.mp4`](demo/teaser.mp4)** (25 s): the backend idea in one breath:
+  "Agents can't mark their own homework", claim vs. commit, a killed worker taken over
+  with zero duplicates, and the outcome. Built from real ledger events in the product's
+  own style. Poster: [`demo/teaser-poster.jpg`](demo/teaser-poster.jpg); post copy:
+  [`demo/share-copy.txt`](demo/share-copy.txt).
 - **Screenshots** of a real run driven by the GUI test (`make test-gui`):
   [`screenshots/`](screenshots/), in order: Builder goal → running → Dashboard progress
   → false claim rejected → kill-worker takeover → agent restarted → determinism 1.0 →

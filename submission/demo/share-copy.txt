@@ -1,0 +1,2 @@
+Agents can't mark their own homework. In Ledger, a worker's "done" stays an amber claim until an independent verifier checks the real CRM over REST. We injected a false claim and killed a worker mid-step. Both were caught and recovered, with zero duplicates.
+One line in ("Add the leads from yesterday's event to the CRM and set up follow-ups.") turned 12 messy rows into 6 contacts created, 3 updated, 2 skipped with reasons, and exactly 1 question for a human. Autonomy is a state-management problem, not a prompting problem.
