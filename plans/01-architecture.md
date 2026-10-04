@@ -671,6 +671,34 @@ hard check exists, and its verdict is recorded with its reasoning.
   scripted fixtures include `lead:9` for the drafter and the batch judge.
 - Report `decisions[]` also carry `model` and `source` (llm | rule | human | judge).
 
+### Track N notes (wiring fixes)
+
+- **Per-email approvals** (supersedes the all-or-nothing note above): the
+  meta-reviewer decides the batch per email with `approval.policy_decisions`
+  after ONE `judge_drafts` call (only drafts whose deterministic checks passed
+  are judged). Each email with judge >= `approval_auto_threshold`, no flags,
+  checks passed and `always_ask_human_email` off gets `approval:<lane>` at once;
+  the batch step always resolves (`approval:emails.decision` approve | partial |
+  escalate, `escalated` {lane: reason, score, flags}). The orchestrator gives
+  each escalated email its own `review.approval` step (lane set, decision key
+  `approval:<lane>`, `inputs.prejudged`); the meta-reviewer escalates it without
+  another judge call, so every failing email is its own Escalation tied to its
+  lane. Sends wait on the newest approval step covering their lane.
+  `review.decided` checks a per-email batch email by email.
+- **Dead lane steps** (`orchestrator_handoff.py`): a lane step that is `dead`
+  and not replanned (no other skill) no longer fails the run. The orchestrator
+  adds a `human.decide` step (skill `review`, decision key `handoff:<lane>`,
+  options `manual` / `skip`, inputs `tried` = every attempt and its verdict);
+  the meta-reviewer always escalates it. The lane is `waiting` until answered;
+  the run ends `completed_pending_input` and the report shows the lane with its
+  reason. Afterwards the dead step is left out of the sweep: an email step
+  handed off counts as handled by the human (`email.sent` lists it), a CRM step
+  makes the lane `handed_off` (manual) or `skipped`. `ReviewDecision.decision`
+  gained `manual` (additive).
+- **Report**: `decisions[].state` = auto | human | open and
+  `decision_counts` {total, auto, human, open}; the summary only counts
+  committed decisions ("4 decisions: 3 made automatically, 1 still open.").
+
 ## 9a. Agent operations
 
 - **Config:** `GET/PUT /agents/{id}/config` for prompt text (versioned),

@@ -517,9 +517,12 @@ async def test_no_replan_without_an_alternative_skill(r, keys):
     assert (await reject_step(r, keys, create.id, cfg=cfg)).status == S.DEAD  # max_attempts
     await o.reconcile(run.id)
     assert (await ledger.get_step(r, keys, task.id)).status == S.DEAD  # dependent fails with the reason
-    lane1 = next(x for x in lane_outcomes(await ledger.list_steps(r, keys, run.id),
-                                          await ledger.get_facts(r, keys, run.id)) if x["lane"] == "lead:1")
-    assert lane1["status"] == "failed"
+    steps = await ledger.list_steps(r, keys, run.id)
+    lane1 = next(x for x in lane_outcomes(steps, await ledger.get_facts(r, keys, run.id)) if x["lane"] == "lead:1")
+    # Track N: no other skill, so the lane goes to a human instead of failing the run
+    handoff = [s for s in steps if s.lane == "lead:1" and s.kind == K.HUMAN_DECIDE]
+    assert len(handoff) == 1 and handoff[0].inputs["dead_step"] == create.id and handoff[0].skill == Skill.REVIEW
+    assert lane1["status"] == "waiting" and "CRM shows nothing" in lane1["reason"]
 
 
 async def test_dead_step_is_replanned_on_auto(r, keys):
@@ -606,7 +609,7 @@ async def test_finish_waits_while_a_live_reviewer_serves_the_queue(r, keys, tmp_
     assert run.status == RunStatus.RUNNING  # the review is moving, not waiting
 
 
-async def test_finish_failed_when_a_criterion_fails(r, keys, tmp_path):
+async def test_dead_lane_step_waits_for_a_human_instead_of_failing_the_run(r, keys, tmp_path):
     o, run = await _run_with(r, keys, tmp_path, HEADER + "Ann Lee,ann@x.test,Xco,,US\n", [
         {"id": "c1", "text": "File parsed", "check": "file.parsed_rows"},
         {"id": "c2", "text": "Contacts exist", "check": "crm.contact_exists"}])
@@ -614,9 +617,17 @@ async def test_finish_failed_when_a_criterion_fails(r, keys, tmp_path):
     await ledger.transition(r, keys, search.id, S.DEAD, actor="verifier", actor_role="orchestrator",
                             reason="CRM unreachable")
     run = await o.reconcile(run.id)
-    assert run.status == RunStatus.FAILED
-    assert {c.id: c.status for c in run.criteria} == {"c1": "verified", "c2": "failed"}
-    assert "lane failed" in run.criteria[1].evidence
+    assert run.status == RunStatus.COMPLETED_PENDING_INPUT  # Track N (was: failed)
+    assert {c.id: c.status for c in run.criteria} == {"c1": "verified", "c2": "pending"}
+    assert "waiting on lead:1" in run.criteria[1].evidence
+
+
+async def test_a_failed_lane_still_fails_its_criterion():
+    """Without a handoff (e.g. a lane outcome built elsewhere) a failed lane is a failed criterion."""
+    crit = run_checks.Criterion(id="c2", text="Contacts exist", check="crm.contact_exists")
+    lanes = [{"lane": "lead:1", "status": "failed", "reason": "crm.search_contact dead", "email": "a@x.test"}]
+    [res] = await run_checks.evaluate_criteria([crit], lanes, CheckContext(run_id="run_x", facts={}))
+    assert res.status == run_checks.FAILED and "lane failed" in res.evidence
 
 
 async def test_finish_failed_when_parse_dies(r, keys):

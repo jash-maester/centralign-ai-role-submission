@@ -78,6 +78,7 @@ from .orchestrator_lanes import (
     resolve_binds,
     route,
 )
+from .orchestrator_handoff import hand_off_dead_lanes
 from .orchestrator_llm import InvalidOutput, criteria_from, make_plan, understand
 from .orchestrator_replan import fail_dependents, replan_run
 from .postconditions import CheckContext
@@ -444,6 +445,9 @@ class Orchestrator:
                 revisions = await replan_run(self.r, self.keys, run.id, steps, cfg, actor=self.agent_id)
                 changed |= bool(revisions)
                 await self._fail_orphans(steps)
+                # Track N: a lane step that is still dead (no replan) goes to a human,
+                # not down with the run
+                changed |= bool(await hand_off_dead_lanes(self.r, self.keys, run.id, cfg, actor=self.agent_id))
             steps = await ledger.list_steps(self.r, self.keys, run.id)
             changed |= bool(await self._release(run, steps))
             if not changed:

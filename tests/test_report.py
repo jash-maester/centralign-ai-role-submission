@@ -267,3 +267,31 @@ async def test_unrecovered_fault_is_reported_honestly(r, keys):
     await _ev(r, keys, run.id, EventType.FAULT_INJECTED, {"fault": "false_claim", "phase": "injected"})
     rep = await report.build_report(r, keys, run.id)
     assert rep["faults"][0]["recovery"] == "not recovered yet" and rep["faults"][0]["lost_s"] is None
+
+
+async def test_summary_counts_only_resolved_decisions(r, keys, chaos_run):
+    """Track N: a review that is still open (ready, leased or waiting on you) is never
+    counted as made automatically, in JSON, in the summary and in markdown."""
+    rep = await report.build_report(r, keys, chaos_run.id)
+    assert rep["decision_counts"] == {"total": 2, "auto": 1, "human": 0, "open": 1}
+    assert "2 decisions: 1 made automatically, 1 still open." in rep["summary"]
+    states = {d["title"]: d["state"] for d in rep["decisions"]}
+    assert states == {"Which Lumen is sam@lumen.io?": "open", "Personal email: Ben Ortiz": "auto"}
+
+    # a review the reviewer has not even picked up yet (ready, not escalated) is open too
+    pending = _step(chaos_run.id, StepKind.REVIEW_AMBIGUITY, Skill.REVIEW, "lead:2", "review.decided",
+                    title="Second look at Marcus Lee")
+    await _ready(r, keys, pending)
+    rep = await report.build_report(r, keys, chaos_run.id)
+    assert rep["decision_counts"] == {"total": 3, "auto": 1, "human": 0, "open": 2}
+    assert "3 decisions: 1 made automatically, 2 still open." in rep["summary"]
+    assert "made automatically, 2 still open" in rep["markdown"]
+    stat = next(s for s in rep["stats"] if s["label"] == "decided automatically")
+    assert stat["n"] == "1/3" and stat["sub"] == "0 by you · 2 open"
+
+    # a human answer counts as "by you", not as automatic
+    await _work(r, keys, pending, "meta-reviewer", {"decision": "skip", "decided_by": "human",
+                                                    "escalation_id": "esc_1", "confidence": 1.0})
+    rep = await report.build_report(r, keys, chaos_run.id)
+    assert rep["decision_counts"] == {"total": 3, "auto": 1, "human": 1, "open": 1}
+    assert "3 decisions: 1 made automatically, 1 by you, 1 still open." in rep["summary"]

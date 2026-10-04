@@ -58,9 +58,9 @@ convincing, **P2** = polish, cut first.
 
 | #   | Feature                                   | P  | Acceptance                                                              |
 |-----|-------------------------------------------|----|-------------------------------------------------------------------------|
-| E1  | Approval policy from playbook -> review   | P0 | External email send always creates a review step; meta-reviewer auto-approves when judge >= 0.90 and no policy flags |
+| E1  | Approval policy from playbook -> review   | P0 | External email send always creates a review step; meta-reviewer auto-approves each email whose judge score >= 0.90 with no policy flags; only failing emails escalate, one escalation per lane (Track N) |
 | E2  | Automatic ambiguity resolution            | P0 | Ambiguous rows go to the meta-reviewer; resolved automatically when confidence >= 0.80 |
-| E3  | Escalation only below threshold           | P0 | Only unresolved items reach `queue:human`, batched, with options and evidence |
+| E3  | Escalation only below threshold           | P0 | Only unresolved items reach `queue:human`, batched, with options and evidence; a lane step that goes dead is escalated (send manually / skip) instead of failing the run (Track N) |
 | E4  | Non-blocking escalations                  | P1 | Unrelated steps proceed while an escalation is open                     |
 | E5  | Answer in GUI, optional save as rule      | P1 | Answer becomes a committed fact; "save as rule" appends to the playbook |
 | E6  | Auto-decision audit trail                 | P1 | Every auto decision lists confidence, evidence and model in the report  |
@@ -76,14 +76,14 @@ convincing, **P2** = polish, cut first.
 | F5  | UI-changed fault                          | P2 | Selector broken -> replan to API skill                                  |
 | F6  | Determinism control                       | P1 | One slider sets per-role temperature + seed; at 1.0 two runs produce the same plan |
 | F7  | Run config (01 §6a)                       | P1 | Every key is honoured by the service that owns it; changes emit `run.config_updated` and apply from the next attempt |
-| F8  | Spend cap + free-model budget             | P0 | Cap reached or daily budget used → no new LLM calls, clear event, run fails with reason; cache hits cost nothing |
+| F8  | Spend cap + free-model budget             | P0 | Cap reached or daily budget used → no new LLM calls, clear event, run fails with reason; cache hits cost nothing. Budget = OpenRouter `GET /key` (minus a reserve), persistent local counter as fallback (Track N) |
 | F9  | Replay                                    | P2 | `make replay RUN=` reproduces the plan from cache with zero live LLM calls |
 
 ## G. Evidence and reporting
 
 | #   | Feature                                   | P  | Acceptance                                                              |
 |-----|-------------------------------------------|----|-------------------------------------------------------------------------|
-| G1  | Evidence report                           | P0 | Created / updated / skipped (with reason) / awaiting approval, with CRM links and screenshots |
+| G1  | Evidence report                           | P0 | Created / updated / skipped (with reason) / awaiting approval, with CRM links and screenshots; decisions counted as auto / by you / open, never open as automatic (Track N) |
 | G2  | Recovery summary in report                | P1 | Lists every retry, takeover, fallback that occurred                     |
 | G3  | Cost and token accounting                 | P2 | Per run and per role                                                    |
 
@@ -137,7 +137,9 @@ The Report design fixes the exact dataset. Event: **Signal Summit**. Owners
 | 12 | Grace Wu      | Tallgrass · grace.wu@tallgrass.com       | created                                   | r.silva |
 
 Totals: 6 created, 3 updated, 2 skipped, 1 waiting; 8 emails (rows
-1,2,3,4,5,8,10,12). `crm_seed.json` must contain Marcus Lee, Hannah Cole,
+1,2,3,4,5,8,10,12) while Sam Ito's escalation is open. Once it is answered
+(e.g. link to Lumen Inc), row 9 is created, drafted, approved in a second,
+one-email batch and sent: the **ninth** email (9 after, 8 while he waits). `crm_seed.json` must contain Marcus Lee, Hannah Cole,
 Benjamin Ortiz (with an open deal), and the two Lumen accounts. The playbook's
 owner-routing rule must reproduce the owner column above.
 

@@ -196,21 +196,58 @@ def _lead_rows(inp: ReportInput) -> list[dict[str, Any]]:
     return rows
 
 
+def _handoff(inp: ReportInput, lane: str | None, steps: list[Step]) -> dict[str, Any] | None:
+    """Track N: the lane's latest dead-step handoff to a human, if any."""
+    from .orchestrator_handoff import EMAIL_KINDS, WHAT, handoffs, last_reason
+
+    hand = handoffs(steps)
+    if not hand or not lane:
+        return None
+    dead_id, h = sorted(hand.items(), key=lambda kv: kv[1].created_at)[-1]
+    dead = next((s for s in steps if s.id == dead_id), None)
+    fact = inp.facts.get(f"handoff:{lane}")
+    dec = (fact.value or {}).get("decision") if fact and isinstance(fact.value, dict) else None
+    if dec is None and h.status == S.COMMITTED:
+        dec = _decision(h).get("decision")
+    kind = next((k for k in StepKind if k.value == h.inputs.get("dead_kind")), None)
+    return {"step": h, "decision": dec, "email": kind in EMAIL_KINDS, "what": WHAT.get(kind, str(kind)),
+            "reason": last_reason(dead) if dead else h.inputs.get("last_error"),
+            "attempts": len(dead.history) if dead else None}
+
+
 def _lead_row(inp: ReportInput, n: int, rec: dict[str, Any], steps: list[Step],
               flag: dict[str, Any] | None) -> dict[str, Any]:
-    live = [s for s in steps if s.status != S.REPLANNED]
+    from .orchestrator_handoff import EMAIL_KINDS, covered
+
+    hidden = covered(steps)  # Track N: dead steps handed to a human (and the handoff steps)
+    hand = _handoff(inp, f"lead:{n}", steps)
+    live = [s for s in steps if s.status != S.REPLANNED and s.id not in hidden]
     create = _by_kind(live, K.CRM_CREATE_CONTACT, committed=True)
     update = _by_kind(live, K.CRM_UPDATE_CONTACT, committed=True)
     search = _by_kind(live, K.CRM_SEARCH_CONTACT, committed=True)
     task = _by_kind(live, K.CRM_CREATE_TASK)
     reviews = _by_kind(live, *REVIEW_KINDS)
     crm_steps = create + update + search
-    skip = next((s for s in reviews if s.status == S.COMMITTED and _decision(s).get("decision") == "skip"), None)
-    waiting = [s for s in live if s.status in WAITING]
+    skip = next((s for s in reviews if s.status == S.COMMITTED and s.kind != K.REVIEW_APPROVAL
+                 and _decision(s).get("decision") == "skip"), None)
+    # an email waiting on an approval (or a human) does not change the CRM outcome
+    waiting = [s for s in live if s.status in WAITING and s.kind not in EMAIL_KINDS]
     dead = [s for s in live if s.status == S.DEAD]
+    attention = None
+    if hand and hand["email"]:
+        attention = (f"{hand['what']} failed after {hand['attempts']} attempt(s): {hand['reason']}"
+                     + ("; waiting for you (send manually / skip)" if not hand["decision"]
+                        else f"; you chose {hand['decision']}"))
 
     if flag and not live:
         outcome, detail = "skipped", flag.get("detail") or flag.get("reason")
+    elif hand and not hand["email"] and not hand["decision"]:
+        outcome = "waiting"
+        detail = f"{hand['what']} failed after {hand['attempts']} attempt(s): {hand['reason']}; waiting for you"
+    elif hand and not hand["email"]:
+        outcome = "skipped"
+        detail = (f"{'skipped' if hand['decision'] == 'skip' else 'handed to you (manual)'} after {hand['what']} "
+                  f"failed: {hand['reason']}")
     elif skip is not None:
         d = _decision(skip)
         outcome = "skipped"
@@ -243,13 +280,19 @@ def _lead_row(inp: ReportInput, n: int, rec: dict[str, Any], steps: list[Step],
     decider = next((s for s in reversed(reviews) if s.status == S.COMMITTED), None)
     decided_by = (_decision(decider).get("decided_by") if decider else None) or (
         main.claim.worker if main is not None and main.claim else None)
+    email_status = _email_status(live)
+    if hand and hand["email"]:
+        email_status = (f"waiting on you: {hand['what']} failed" if not hand["decision"] else
+                        "sent manually by you" if hand["decision"] == "manual" else "skipped by you")
+    if attention:
+        detail = f"{detail}; email: {attention}" if detail else f"email: {attention}"
     return {
         "n": n, "name": rec.get("name") or "-", "company": rec.get("company"), "email": rec.get("email"),
-        "outcome": outcome, "outcome_detail": detail,
+        "outcome": outcome, "outcome_detail": detail, "attention": attention,
         "owner": _name(_pick(crm_steps + task, ("owner", "owner_name", "assigned_user", "assigned_user_name",
                                                "owner_user_name"))),
         "task_due": _pick([s for s in task if s.status == S.COMMITTED] or task, ("due", "due_date", "dateEnd")),
-        "email_status": _email_status(live),
+        "email_status": email_status,
         "decided_by": decided_by,
         "verified_by": main.verdict.verifier if main is not None and main.verdict else None,
         "check": main.verdict.check if main is not None and main.verdict else None,
@@ -278,6 +321,33 @@ def _email_status(steps: list[Step]) -> str | None:
     return None
 
 
+def _decision_state(step: Step, d: dict[str, Any], escalated: bool) -> str:
+    if step.status != S.COMMITTED:
+        return "open"
+    return "human" if d.get("decided_by") == "human" or escalated else "auto"
+
+
+def decision_counts(decisions: list[dict[str, Any]]) -> dict[str, int]:
+    """{total, auto, human, open}: resolved = auto + human; open = not decided yet."""
+    out = {"total": len(decisions), "auto": 0, "human": 0, "open": 0}
+    for d in decisions:
+        out[d.get("state") or "open"] += 1
+    return out
+
+
+def decisions_sentence(c: dict[str, int]) -> str:
+    """e.g. "4 decisions: 3 made automatically, 1 still open." (never counts an open one as made)."""
+    if not c["total"]:
+        return ""
+    bits = [f"{c['auto']} made automatically"]
+    if c["human"]:
+        bits.append(f"{c['human']} by you")
+    if c["open"]:
+        bits.append(f"{c['open']} still open")
+    noun = "decision" if c["total"] == 1 else "decisions"
+    return f"{c['total']} {noun}: " + ", ".join(bits) + "."
+
+
 def _decisions(inp: ReportInput) -> list[dict[str, Any]]:
     escalated = {e.step_id for e in inp.events if e.type == EventType.REVIEW_ESCALATED}
     out = []
@@ -297,6 +367,8 @@ def _decisions(inp: ReportInput) -> list[dict[str, Any]]:
             "threshold": d.get("threshold"), "result": result,
             "decided_by": d.get("decided_by") or (s.claim.worker if s.claim else "-"),
             "escalated": s.id in escalated or s.status == S.INPUT_REQUIRED,
+            # Track N: auto | human | open (only committed decisions count as made)
+            "state": _decision_state(s, d, s.id in escalated),
             "forced_reason": d.get("forced_reason"),
             # W3: which model (or rule / human) made the call, for every auto decision
             "model": d.get("model") or next((a.model for a in reversed(s.history) if a.model), None),
@@ -336,6 +408,7 @@ def _emails(inp: ReportInput, leads: dict[int, dict[str, Any]]) -> list[dict[str
         approval = _by_kind(steps, K.REVIEW_APPROVAL)
         lead = leads.get(_lead_no(lane) or -1, {})
         judge = _pick(draft, ("judge_score", "score", "judge"))
+        hand = _handoff(inp, lane, [s for s in inp.steps if s.lane == lane])
         if approval:
             a = approval[-1]
             d = _decision(a)
@@ -352,7 +425,8 @@ def _emails(inp: ReportInput, leads: dict[int, dict[str, Any]]) -> list[dict[str
             "lane": lane, "to": _pick(draft, ("to", "recipient")) or lead.get("email") or "-",
             "subject": _pick(draft, ("subject",)) or "-",
             "judge": judge if isinstance(judge, (int, float)) else None,
-            "approval": approval_txt, "delivery": _email_status(steps) or "-",
+            "approval": approval_txt,
+            "delivery": (lead.get("email_status") if hand and hand["email"] else _email_status(steps)) or "-",
         })
     return out
 
@@ -662,10 +736,7 @@ def _summary(inp: ReportInput, leads: list[dict[str, Any]], decisions: list[dict
         parts[0] += f", {cnt['failed']} failed"
     parts[0] += "."
     if decisions:
-        auto = sum(1 for d in decisions if d["result"] != "waiting on you" and not d["escalated"])
-        human = sum(1 for d in decisions if d["escalated"] and d["result"] != "waiting on you")
-        parts.append(f"{auto} of {len(decisions)} decisions made automatically" + (f", {human} by you" if human
-                                                                                    else "") + ".")
+        parts.append(decisions_sentence(decision_counts(decisions)))
     sent = sum(1 for e in emails if e["delivery"] == "sent")
     if emails:
         parts.append(f"{sent} of {len(emails)} follow-ups sent.")
@@ -699,11 +770,12 @@ def build(inp: ReportInput) -> dict[str, Any]:
         "events": len(inp.events),
     }
     cnt = {k: sum(1 for x in leads if x["outcome"] == k) for k in ("created", "updated", "skipped", "waiting")}
+    dc = decision_counts(decisions)
     stats = [
         {"n": cnt["created"] + cnt["updated"], "label": "contacts verified", "sub": f"REST · {duplicates} duplicates"},
         {"n": cnt["skipped"], "label": "skipped with reason", "sub": "logged per row"},
-        {"n": f"{sum(1 for d in decisions if not d['escalated'] and d['result'] != 'waiting on you')}/{len(decisions)}",
-         "label": "decided automatically", "sub": "meta-reviewer"},
+        {"n": f"{dc['auto']}/{dc['total']}", "label": "decided automatically",
+         "sub": f"{dc['human']} by you · {dc['open']} open" if dc["human"] or dc["open"] else "meta-reviewer"},
         {"n": cnt["waiting"], "label": "waiting on you", "sub": "see Decisions" if cnt["waiting"] else "none"},
         {"n": sum(1 for e in emails if e["delivery"] == "sent"), "label": "emails sent", "sub": "confirmed in Mailpit"},
         {"n": sum(1 for f in faults if f["recovered"]), "label": "faults recovered", "sub": f"{lost}s lost"},
@@ -714,7 +786,7 @@ def build(inp: ReportInput) -> dict[str, Any]:
         "created_at": run.created_at, "finished_at": run.finished_at,
         "duration_s": _secs(run.finished_at or last_ts, t0),
         "criteria": criteria, "leads": leads, "phases": _phases(inp, t0), "faults": faults,
-        "recoveries": _recoveries(inp, t0), "decisions": decisions, "coverage": coverage,
+        "recoveries": _recoveries(inp, t0), "decisions": decisions, "decision_counts": dc, "coverage": coverage,
         "emails": emails, "agents": agents, "cost_by_role": cost, "input": _input(inp),
         "reproduce": _reproduce(inp, faults), "totals": totals, "stats": stats,
     }
@@ -751,6 +823,8 @@ def to_markdown(rep: dict[str, Any]) -> str:
                   f"[open]({x['crm_url']})" if x.get("crm_url") else None,
                   f"![]({x['screenshot']})" if x.get("screenshot") else None] for x in rep["leads"]])
     L += ["## Decisions", ""]
+    if rep.get("decision_counts", {}).get("total"):
+        L += [decisions_sentence(rep["decision_counts"]), ""]
     L += _table(["Decision", "Confidence", "Threshold", "Result", "Decided by", "Model", "Evidence"],
                 [[d["title"], d.get("confidence"), d.get("threshold"), d["result"],
                   d["decided_by"] + (" (escalated)" if d.get("escalated") else ""),

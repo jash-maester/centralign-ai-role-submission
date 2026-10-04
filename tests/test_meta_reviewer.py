@@ -306,32 +306,38 @@ def approval_step(drafts=DRAFTS) -> Step:
                 postcondition=Postcondition(check="review.decided", args={"decision_key": "approval:emails"}))
 
 
-@pytest.mark.parametrize("scores,cfg,auto,why", [
-    ((0.95, 0.92), {}, True, None),
-    ((0.95, 0.90), {}, True, None),
-    ((0.95, 0.89), {}, False, None),
-    ((0.95, 0.95), {"always_ask_human_email": True}, False, "always_ask_human_email"),
-    ((0.95, 0.95), {"llm_judge_enabled": False}, False, "llm_judge_enabled"),
+@pytest.mark.parametrize("scores,cfg,approved,why", [
+    ((0.95, 0.92), {}, ["lead:1", "lead:3"], None),
+    ((0.95, 0.90), {}, ["lead:1", "lead:3"], None),
+    ((0.95, 0.89), {}, ["lead:1"], None),  # Track N: only lead:3 escalates
+    ((0.85, 0.89), {}, [], None),
+    ((0.95, 0.95), {"always_ask_human_email": True}, [], "always_ask_human_email"),
+    ((0.95, 0.95), {"llm_judge_enabled": False}, [], "llm_judge_enabled"),
 ])
-async def test_approval_rules(scores, cfg, auto, why):
+async def test_approval_rules_per_email(scores, cfg, approved, why):
     with judge_stub(*scores).installed() as stub:
         out = await decide_approval(approval_step(), {"drafts": DRAFTS}, RunConfig(**cfg))
-    assert out.auto is auto
-    assert out.decision.confidence == (min(scores) if not why else 0.0)
+    assert out.auto is True  # the batch always resolves; failing emails escalate one by one
+    assert sorted(out.extra["items"]) == approved
+    assert sorted(out.extra["escalated"]) == sorted({"lead:1", "lead:3"} - set(approved))
+    assert out.extra["batch_decision"] == ("approve" if len(approved) == 2 else "partial" if approved else "escalate")
+    assert out.decision.confidence == min((s for d, s in zip(DRAFTS, scores) if d["id"] in approved), default=0.0)
     if why:
-        assert why in out.forced_reason and stub.calls == []  # no judge call when a human must decide
+        assert all(why in e["reason"] for e in out.extra["escalated"].values())
+        assert stub.calls == []  # no judge call when a human must decide
     else:
         assert len(stub.calls) == 1  # one batch call for every draft
 
 
-async def test_approval_flags_and_failed_checks_escalate():
+async def test_approval_flags_and_failed_checks_escalate_only_that_email():
     with judge_stub(0.97, 0.97, flags={"lead:3": ["pricing"]}).installed():
         out = await decide_approval(approval_step(), {"drafts": DRAFTS}, RunConfig())
-    assert not out.auto and out.forced_reason == "judge raised policy flags"
+    assert list(out.extra["items"]) == ["lead:1"] and "pricing" in out.extra["escalated"]["lead:3"]["reason"]
     bad = [DRAFTS[0], {**DRAFTS[1], "checks_ok": False, "check_reason": "subject mismatch"}]
-    with judge_stub(0.97, 0.97).installed():
+    with judge_stub(0.97, 0.97).installed() as stub:
         out = await decide_approval(approval_step(bad), {"drafts": bad}, RunConfig())
-    assert not out.auto and "deterministic" in out.forced_reason
+    assert list(out.extra["items"]) == ["lead:1"] and "deterministic" in out.extra["escalated"]["lead:3"]["reason"]
+    assert len(stub.calls) == 1 and "lena@kestrel" not in stub.calls[0].text  # judged only what passed
 
 
 async def test_approval_step_end_to_end(r, keys):
@@ -395,20 +401,42 @@ async def test_track_k_items_auto_approve_commit_per_email_facts(r, keys):
     assert batch["approved"] == ["lead:1", "lead:3"] and batch["decision"] == "approve"
 
 
-async def test_track_k_items_escalated_then_rejected_sends_nothing(r, keys):
+async def test_track_k_items_one_low_score_escalates_only_that_email(r, keys):
+    """Track N: lead:1 (0.96) is approved at once; lead:3 (0.40) gets its own
+    review.approval step for its lane, which escalates (no second judge call);
+    the human's reject commits approval:lead:3 only."""
     from ledger_core import approval
+    from ledger_core.orchestrator_email import _lane_approval_stage
 
     run, step = await _k_items_step(r, keys)
-    with judge_stub(0.96, 0.40).installed():
+    with judge_stub(0.96, 0.40).installed() as stub:
         await reviewer(r, keys).run_until_idle()
+    await verify_all(r, keys)
+    assert (await ledger.get_step(r, keys, step.id)).status == S.COMMITTED  # the batch resolved
     facts = await ledger.get_facts(r, keys, run.id)
-    assert all(approval.approval_for(facts, d["id"]) is None for d in DRAFTS)  # nothing approved yet
-    esc = (await escalations.list_escalations(r, keys, run_id=run.id))[0]
+    assert approval.is_approved(approval.approval_for(facts, "lead:1", approval_step=step.id))
+    assert approval.approval_for(facts, "lead:3", approval_step=step.id) is None  # not approved, not rejected
+    batch = facts[approval.BATCH_KEY]
+    assert batch["decision"] == "partial" and batch["approved"] == ["lead:1"] and list(batch["escalated"]) == ["lead:3"]
+    assert await escalations.list_escalations(r, keys, run_id=run.id) == []  # the batch itself never escalates
+
+    steps = await ledger.list_steps(r, keys, run.id)
+    single = _lane_approval_stage(run, steps, facts, RunConfig())
+    assert [s.lane for s in single] == ["lead:3"] and single[0].inputs["prejudged"]["score"] == 0.4
+    assert _lane_approval_stage(run, steps + single, facts, RunConfig()) == []  # idempotent
+    await ledger.create_steps(r, keys, single, actor="test")
+    await ledger.transition(r, keys, single[0].id, S.READY, actor="test", actor_role="orchestrator")
+    with judge_stub(0.96, 0.40).installed() as again:
+        await reviewer(r, keys).run_until_idle()
+    assert again.calls == [] and len(stub.calls) == 1  # the judge stayed ONE batch call
+    [esc] = await escalations.list_escalations(r, keys, run_id=run.id)
+    assert esc.lane == "lead:3" and esc.step_id == single[0].id and "0.40" in esc.question
     await escalations.answer(r, keys, esc.id, "reject", by="tester")
     await reviewer(r, keys).run_until_idle()
     await verify_all(r, keys)
-    assert (await ledger.get_step(r, keys, step.id)).status == S.COMMITTED
+    assert (await ledger.get_step(r, keys, single[0].id)).status == S.COMMITTED
     facts = await ledger.get_facts(r, keys, run.id)
-    for d in DRAFTS:
-        rec = approval.approval_for(facts, d["id"])
-        assert rec["decision"] == "reject" and not approval.is_approved(rec)
+    rec = approval.approval_for(facts, "lead:3")
+    assert rec["decision"] == "reject" and rec["draft_step"] == "step_draft1" and rec["decided_by"] == "human"
+    assert approval.is_approved(approval.approval_for(facts, "lead:1"))
+    assert facts[approval.BATCH_KEY]["rejected"] == ["lead:3"] and facts[approval.BATCH_KEY]["escalated"] == {}

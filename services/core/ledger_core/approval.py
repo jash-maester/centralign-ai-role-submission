@@ -17,9 +17,11 @@ One `review.approval` step per run (skill `review`, lane None) covers every
 draft that is ready when the CRM work has settled; its inputs list the items
 (lane, draft fact ref, approval key). The meta-reviewer (Track J) decides it:
 deterministic policy first, then ONE `judge.judge_drafts()` call for the whole
-batch, auto-approving a draft only when its score >= approval_auto_threshold
-and there are no policy flags (and `always_ask_human_email` is off); otherwise
-the step escalates to a human. Whoever decides commits the facts above with
+batch, auto-approving each draft on its own when its score >=
+approval_auto_threshold and there are no policy flags (and
+`always_ask_human_email` is off). Track N: only the drafts that fail escalate,
+each through its own `review.approval` step for its lane (decision key
+`approval:<lane>`); the batch record lists them under `escalated`. Whoever decides commits the facts above with
 `commit_decisions()` (ledger.commit_fact).
 
 The mailer sends a draft only when `approval_for(facts, lane)` says approve

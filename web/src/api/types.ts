@@ -373,6 +373,8 @@ export interface ReportDecision {
   result: string;
   decided_by: string;
   escalated?: boolean;
+  /** auto | human | open: only committed decisions count as made (Track N). */
+  state?: 'auto' | 'human' | 'open';
   forced_reason?: string | null;
 }
 
