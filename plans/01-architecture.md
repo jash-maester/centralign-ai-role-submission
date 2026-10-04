@@ -544,6 +544,50 @@ hard check exists, and its verdict is recorded with its reasoning.
   `completed_pending_input` with the report listing what waits. (This is the
   only name for that status; v1's `completed_pending_approval` is retired.)
 
+### Implementation notes (Track J, meta-reviewer + escalations)
+
+- `meta_reviewer.py` (`MetaReviewer`, a worker_base.Worker on skill `review`;
+  service `python -m ledger_core.services.meta_reviewer`). review.ambiguity:
+  deterministic read-only evidence (CrmReader verifier key: candidates' phones,
+  emails, shared domains, account websites/countries, open deals, task owners;
+  playbook escalation rules) -> a saved playbook rule for the same case decides
+  at confidence 1.0 without an LLM call -> else `llm.complete("meta_reviewer",
+  ..., ReviewDecision)` with `fixture_key=<lane>`. Guards: the answer must map to
+  one of the step's options (by value, id or label); `ambiguous_account` with
+  nothing distinguishing the accounts always escalates (playbook rule). LLM
+  errors escalate (never guessed).
+- At/above `review_auto_threshold`: fact `review:<lane>` (decision, value,
+  confidence, threshold, evidence, decided_by, model, option, label, source),
+  `review.resolved`, then a claim (`acted=false`) that the verifier commits via
+  `review.decided` (checks/review.py: fact exists and agrees with the claim,
+  option is valid, confidence >= the run's threshold and no forced reason, or a
+  human answer recorded on an answered escalation of this step).
+- Below: `escalations.escalate()` moves the step leased -> review_required ->
+  input_required in one transaction (role `meta_reviewer`, fenced), stores
+  `escalation:{id}` (+ `escalations:open`), puts a task envelope on
+  `queue:human` and emits `review.escalated` (payload: question, options,
+  confidence, threshold, tried/evidence, proposed decision, forced reason).
+- Answers (`POST /escalations/{id}` `{answer, save_as_rule, by, note}`; CLI
+  `approvals list|answer ESC ANSWER [--save-as-rule] [--wait|--local]`):
+  answer = an option value or label; commits the decision fact (decided_by
+  human), emits `input.answered`, moves the step input_required -> ready with
+  `inputs.human_decision`; the meta-reviewer claims it without an LLM call and
+  the verifier commits it, which releases only that lane. `save_as_rule`
+  appends `- <text> [rule reason=<r> company=<c> domain=<d> -> <option>]` to
+  "Escalation rules" (playbook.append_rule, version bump, `config.updated`
+  scope=playbook).
+- review.approval (Track K): `inputs.drafts=[{id, to, subject, body,
+  checks_ok?, check_reason?}]` (or `draft`), decision key from
+  `postcondition.args.decision_key` (default `approval:<lane>`). Auto-approve
+  only if every deterministic check passed, `judge.judge_drafts` (one call) min
+  score >= `approval_auto_threshold` with no flags, `llm_judge_enabled` and not
+  `always_ask_human_email` -> fact + `approval.auto` (record has `scores`,
+  `drafts`); else escalate with options approve / reject.
+- `orchestrator_lanes.lookup_for` merges the search claim data, Track F's
+  `<lane>.lookup` and `<lane>.routing` facts (the lookup fact alone has no
+  owner, which sent every routed lead to an unknown_region review).
+- `cli demo` / `LocalAgents` start an in-process meta-reviewer when none is alive.
+
 ## 9a. Agent operations
 
 - **Config:** `GET/PUT /agents/{id}/config` for prompt text (versioned),
@@ -571,6 +615,7 @@ hard check exists, and its verdict is recorded with its reasoning.
 | GET    | `/evidence/{path}`                 | Screenshots                     |
 | GET    | `/escalations`                     | Open human escalations          |
 | POST   | `/escalations/{id}`                | Answer (+ optional save_as_rule)|
+| GET    | `/escalations/{id}`                | One escalation (Track J, additive; GET /escalations takes ?run_id=&status=open\|answered\|all) |
 | GET    | `/runs/{id}/steps/{step_id}`       | Step detail with attempt history|
 | POST   | `/runs/{id}/determinism`           | Set level 0..1, seed            |
 | GET/PUT| `/runs/{id}/config`                | Run controls (§6a)              |
