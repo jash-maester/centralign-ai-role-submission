@@ -353,6 +353,18 @@ approval, 8 drafts, 8 judge calls, a few browser decisions). So:
   LLM calls. The email judge scores all drafts of a run in one call. Unit
   tests use the stub LLM; only the env-flagged smoke test calls OpenRouter.
 - 429s from free models are retried once with backoff, then fall back.
+- **Implementation notes (Track D).** `LLM_BACKEND=openrouter|scripted|stub`
+  picks the backend (`llm.complete()` installs it lazily); `scripted` answers
+  from `tests/fixtures/llm/*.json` for offline runs (convention in that
+  folder's README). Every HTTP request (including the one retry and the one
+  re-ask) increments the budget and emits `llm.call` (`ok`, tokens, cost,
+  latency); a cache hit emits `llm.cache_hit` instead. Per-run spend and
+  request counts (also per role) live in the hash `llm:spend:{run_id}`.
+  `LLM_CACHE=off` skips cache reads but still writes, so a forced live run
+  refreshes the cache for later replays. The `model_outage` fault (F4)
+  replaces the primary model of the **worker** role only, matching
+  `make chaos-model-outage`; a numeric value is a shot count. `llm.last_call()`
+  exposes the model that answered (for `Verdict.model` / `ReviewDecision.model`).
 
 ## 7. Prompt assembly (dynamic prompting)
 
@@ -370,6 +382,9 @@ Layers are configurable per agent (`agent:{id}:config`): the system prompt is
 editable and versioned (`prompt.updated`), and layers 2 and 5 can be switched
 off for experiments. Layer 4 (prior attempts + rejection reasons) is locked on,
 because D3 depends on it.
+Layer ids (agent config, GUI): `role`, `playbook`, `step`, `history`, `schema`.
+`prompts.assemble()` reports approximate tokens per layer (chars / 4) and
+accepts a stable `fixture_key` hint for the scripted backend.
 
 ## 8. Verification
 
