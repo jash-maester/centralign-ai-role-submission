@@ -1,0 +1,42 @@
+{
+  "goal": "Phase 2 acceptance: parse the Signal Summit export, then create three new leads in the CRM via the API skill",
+  "input_file": "event_attendees.csv",
+  "config": {"lease_ttl_s": 15, "max_attempts": 3, "check_then_act": true},
+  "steps": [
+    {
+      "ref": "parse",
+      "kind": "file.parse",
+      "title": "Parse event_attendees.csv",
+      "inputs": {"file": "event_attendees.csv"},
+      "postcondition": {
+        "check": "file.parsed_rows",
+        "args": {"file": "event_attendees.csv"},
+        "expect": {"required_columns": ["name", "email", "company"], "total_rows": 12}
+      }
+    },
+    {
+      "ref": "create-1", "kind": "crm.create_contact", "skill": "api.espocrm", "lane": "lead:1",
+      "title": "Create contact Priya Raman (Northwind)", "side_effect": true, "idempotency_key": "lead:1:create",
+      "depends_on": ["parse"],
+      "inputs": {"lead": "fact:lead:1", "idempotency_key": "lead:1:create"},
+      "postcondition": {"check": "crm.contact_exists", "args": {"email": "priya@northwind.com"},
+                        "expect": {"owner": "a.chen", "first_name": "Priya", "last_name": "Raman"}}
+    },
+    {
+      "ref": "create-3", "kind": "crm.create_contact", "skill": "api.espocrm", "lane": "lead:3",
+      "title": "Create contact Lena Fischer (Kestrel Labs)", "side_effect": true, "idempotency_key": "lead:3:create",
+      "depends_on": ["parse"],
+      "inputs": {"lead": "fact:lead:3", "idempotency_key": "lead:3:create"},
+      "postcondition": {"check": "crm.contact_exists", "args": {"email": "lena@kestrel-labs.io"},
+                        "expect": {"owner": "r.silva", "first_name": "Lena", "last_name": "Fischer"}}
+    },
+    {
+      "ref": "create-4", "kind": "crm.create_contact", "skill": "api.espocrm", "lane": "lead:4",
+      "title": "Create contact Dana Okafor (Helix Bio)", "side_effect": true, "idempotency_key": "lead:4:create",
+      "depends_on": ["parse"],
+      "inputs": {"lead": "fact:lead:4", "idempotency_key": "lead:4:create"},
+      "postcondition": {"check": "crm.contact_exists", "args": {"email": "dana@helixbio.com"},
+                        "expect": {"owner": "a.chen", "first_name": "Dana", "last_name": "Okafor"}}
+    }
+  ]
+}

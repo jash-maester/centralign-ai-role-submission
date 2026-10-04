@@ -163,6 +163,15 @@ services:
     command: ["python", "-m", "ledger_core.services.meta_reviewer"]
     environment: { <<: *core-env, AGENT_ID: meta-reviewer }
 
+  worker-api:  # Track F: skill api.espocrm (C11 fallback / Phase 2 CRM path)
+    <<: *core
+    command: ["python", "-m", "ledger_core.services.worker_api_crm"]
+    environment: { <<: *core-env, AGENT_ID: worker-api }
+    depends_on:
+      <<: *core-deps
+      espocrm:
+        condition: service_healthy
+
   worker-parser:
     <<: *core
     command: ["python", "-m", "ledger_core.services.worker_parser"]

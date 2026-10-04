@@ -24,10 +24,11 @@ resolved from committed facts, the committed facts, prior attempts with their
 observations and the verifier's rejection reasons, the RunConfig, and
 ctx.observe() which records a step.observation.
 
-Faults: if the `false_claim` switch is set (Keys.faults field
-"false_claim:<skill>" or "false_claim"; value = remaining shots or "on"), one
-shot is consumed, the handler is skipped and the worker claims success with
-acted=False and no work done (F2: the verifier must catch it).
+Faults (read through ledger_core.faults): if the `false_claim` switch is set
+(Keys.faults field "false_claim:<agent_id>", "false_claim:<skill>" or
+"false_claim"; value = remaining shots or "on"), one shot is consumed, the
+handler is skipped and the worker claims success with acted=False and no work
+done (F2: the verifier must catch it).
 
 SIGTERM: stop consuming, cancel the current handler, release the lease (so the
 reaper requeues the step at once), drop liveness, exit. SIGKILL needs nothing:
@@ -47,7 +48,7 @@ import redis.asyncio as aioredis
 from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
 
-from . import agents, bus, leases, ledger
+from . import agents, bus, faults, leases, ledger
 from .config import RunConfig
 from .events import append_event
 from .keys import Keys
@@ -94,27 +95,11 @@ class WorkContext:
 
 Handler = Callable[[Step, WorkContext], Awaitable[WorkResult | dict[str, Any]]]
 
-_TAKE_SHOT = """
-for i, f in ipairs(ARGV) do
-  local v = redis.call('HGET', KEYS[1], f)
-  if v then
-    if v == 'on' then return f end
-    local n = tonumber(v)
-    if n and n > 0 then
-      if n <= 1 then redis.call('HDEL', KEYS[1], f) else redis.call('HINCRBY', KEYS[1], f, -1) end
-      return f
-    end
-  end
-end
-return false
-"""
-
-
 async def take_fault_shot(r: aioredis.Redis, keys: Keys, fault: FaultName | str, *, skill: str | None = None) -> str | None:
     """Consume one shot of a fault switch; returns the field consumed or None.
-    A skill-scoped field ("<fault>:<skill>") is checked before the global one."""
-    fields = ([f"{fault}:{skill}"] if skill else []) + [str(fault)]
-    return await r.eval(_TAKE_SHOT, 1, keys.faults, *fields) or None
+    A skill-scoped field ("<fault>:<skill>") is checked before the global one.
+    Kept for compatibility; delegates to ledger_core.faults (the only reader of Keys.faults)."""
+    return await faults.consume(r, keys, fault, scope=skill)
 
 
 class Worker:
@@ -267,12 +252,10 @@ class Worker:
         return "claimed"
 
     async def _run_handler(self, step: Step, fence: int, cfg: RunConfig) -> WorkResult:
-        shot = await take_fault_shot(self.r, self.keys, FaultName.FALSE_CLAIM, skill=step.skill.value)
+        shot = await faults.consume_and_record(
+            self.r, self.keys, FaultName.FALSE_CLAIM, scope=[self.agent_id, step.skill.value], actor=self.agent_id,
+            run_id=step.run_id, step_id=step.id, effect="handler skipped; claiming success without acting")
         if shot:
-            await append_event(self.r, self.keys, Event(
-                run_id=step.run_id, step_id=step.id, actor=self.agent_id, type=EventType.FAULT_INJECTED,
-                payload={"fault": FaultName.FALSE_CLAIM.value, "switch": shot, "phase": "consumed",
-                         "effect": "handler skipped; claiming success without acting"}))
             return WorkResult(summary="done", data={}, acted=False)
         try:
             ctx = WorkContext(
