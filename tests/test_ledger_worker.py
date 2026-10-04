@@ -8,8 +8,6 @@ import signal
 import subprocess
 import sys
 
-from ledger_helpers import CSV, S, new_run, new_step, wait_for
-
 from ledger_core import agents, ledger, reaper
 from ledger_core.config import RunConfig
 from ledger_core.events import read_events
@@ -17,6 +15,8 @@ from ledger_core.protocol import EventType, StepStatus
 from ledger_core.verifier import Verifier
 from ledger_core.worker_base import WorkContext, Worker, WorkResult, take_fault_shot, worker_card
 from ledger_core.workers.parser import make_handler
+
+from ledger_helpers import CSV, S, new_run, new_step, wait_for
 
 CARD = {"file.parse": ["file.parse"]}
 
@@ -303,7 +303,7 @@ async def test_handler_exception_becomes_error_claim(r, keys):
 async def test_inputs_resolved_from_committed_facts_only(r, keys):
     run = await new_run(r, keys)
     await ledger.commit_fact(r, keys, run.id, "lead:1", {"email": "a@b.co"}, source_step="stp_0", actor="verifier")
-    step = await ready_step(r, keys, run.id, inputs={"lead": "fact:lead:1", "file": CSV, "x": ["fact:lead:1"]})
+    await ready_step(r, keys, run.id, inputs={"lead": "fact:lead:1", "file": CSV, "x": ["fact:lead:1"]})
     got = {}
 
     async def h(step, ctx):

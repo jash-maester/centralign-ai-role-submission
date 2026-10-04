@@ -5,16 +5,16 @@ from __future__ import annotations
 
 import json
 import shutil
-from pathlib import Path
 
 import pytest
 
-from api_helpers import api_client
 from ledger_core import cli, escalations, ledger, llm
 from ledger_core.llm_scripted import ScriptedBackend
 from ledger_core.orchestrator_lanes import group_lanes
 from ledger_core.protocol import EventType, StepKind, StepStatus
 from ledger_core.settings import get_settings
+
+from api_helpers import api_client
 from test_meta_reviewer import FIXTURES, demo_reviews, reviewer, verify_all
 
 S = StepStatus
@@ -128,9 +128,10 @@ async def _drive_crm(r, keys, o, run_id):
 async def test_open_escalation_holds_only_its_lane_and_run_pends(r, keys, tmp_path, monkeypatch):
     """Sam waits on a human; Ann's lane runs to the end; the run finishes as
     completed_pending_input, resumes on the answer, and completes."""
+    from ledger_core import orchestrator
     from ledger_core.llm_testing import StubLLM
     from ledger_core.protocol import ReviewDecision, RunStatus
-    from ledger_core import orchestrator
+
     from test_orchestrator import HEADER, _run_with, finish_step
 
     # CRM lanes only: Track K's email stage (drafts, approval batch, sends) is

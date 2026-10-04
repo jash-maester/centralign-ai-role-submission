@@ -81,7 +81,8 @@ class LedgerSink:
         return self._r
 
     async def emit(self, type_: EventType, payload: dict[str, Any], run_id: str | None, step_id: str | None) -> None:
-        await append_event(self.r, self.keys, Event(actor=self.actor, type=type_, run_id=run_id, step_id=step_id, payload=payload))
+        await append_event(self.r, self.keys, Event(actor=self.actor, type=type_, run_id=run_id, step_id=step_id,
+                                                    payload=payload))
 
 
 class OpenRouterBackend:

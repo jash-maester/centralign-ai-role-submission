@@ -27,7 +27,7 @@ def test_any_non_terminal_can_die():
 
 def test_happy_path_is_legal():
     path = ["planned", "ready", "leased", "claimed_done", "verified", "committed"]
-    for a, b in zip(path, path[1:]):
+    for a, b in zip(path, path[1:], strict=False):
         assert p.is_legal_transition(p.StepStatus(a), p.StepStatus(b))
 
 
@@ -64,7 +64,7 @@ def test_playbook_front_matter_feeds_run_config(repo):
     front = yaml.safe_load(text.split("---")[1])
     cfg = defaults_from(front)
     assert cfg.review_auto_threshold == 0.80 and cfg.approval_auto_threshold == 0.90
-    headings = [l[3:] for l in text.splitlines() if l.startswith("## ")]
+    headings = [line[3:] for line in text.splitlines() if line.startswith("## ")]
     assert headings == [
         "Dedupe rules", "Owner routing", "Follow-up policy",
         "Approval policy", "Escalation rules", "Definitions of done",

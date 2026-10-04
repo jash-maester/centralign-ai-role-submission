@@ -200,8 +200,9 @@ async def ambiguity_evidence(inputs: dict[str, Any], crm: Any) -> tuple[list[str
                 try:
                     deals = await crm.open_opportunities_for_contact(cid)
                     tasks = await crm.tasks_for_contact(cid)
+                    owners = sorted({str(t.get('assignedUserName')) for t in tasks if t.get('assignedUserName')})
                     ev.append(f"{name}: {len(deals)} open deal(s), {len(tasks)} task(s)"
-                              + (f" owned by {', '.join(sorted({str(t.get('assignedUserName')) for t in tasks if t.get('assignedUserName')}))}"
+                              + (f" owned by {', '.join(owners)}"
                                  if tasks else ""))
                 except Exception as exc:  # noqa: BLE001
                     ev.append(f"REST: history of {cid} unreadable ({type(exc).__name__})")

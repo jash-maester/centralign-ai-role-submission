@@ -26,7 +26,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .. import agent_config, llm, playbook as playbook_mod
+from .. import agent_config, llm
+from .. import playbook as playbook_mod
 from ..checks.email import template_subject, word_count
 from ..protocol import Step, StepKind
 from ..worker_base import WorkContext, WorkResult

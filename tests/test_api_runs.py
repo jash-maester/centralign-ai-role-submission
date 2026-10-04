@@ -6,11 +6,12 @@ import json
 
 import pytest
 
-from api_helpers import api_client
 from ledger_core import ledger, run_config
 from ledger_core.config import RunConfig
 from ledger_core.events import read_events
 from ledger_core.protocol import EventType, StepStatus
+
+from api_helpers import api_client
 
 PARSE_STEPS = [{
     "ref": "parse", "kind": "file.parse", "title": "Parse event_attendees.csv",

@@ -19,8 +19,6 @@ import json
 import shutil
 
 import pytest
-from crm_helpers import crm_secrets  # noqa: F401 - fixture
-from test_email_e2e import BEN, RECIPIENTS, clean_world  # noqa: F401 - fixture
 
 from ledger_core import escalations, ledger, llm, report
 from ledger_core.llm_scripted import ScriptedBackend
@@ -28,6 +26,9 @@ from ledger_core.mailpit import MailpitClient
 from ledger_core.orchestrator import submit_goal
 from ledger_core.orchestrator_local import LocalAgents
 from ledger_core.protocol import EventType, RunStatus, StepKind, StepStatus
+
+from crm_helpers import crm_secrets  # noqa: F401 - fixture
+from test_email_e2e import BEN, RECIPIENTS, clean_world  # noqa: F401 - fixture
 
 pytestmark = pytest.mark.crm
 

@@ -53,11 +53,13 @@ from typing import Any
 import redis.asyncio as aioredis
 from redis.exceptions import RedisError
 
-from . import agents, ledger, llm, playbook as playbook_mod, run_config
+from . import agents, ledger, llm, run_config
+from . import playbook as playbook_mod
 from .checks import run as run_checks
 from .config import RunConfig
 from .events import append_event
 from .keys import Keys
+from .orchestrator_handoff import hand_off_dead_lanes
 from .orchestrator_lanes import (
     REVIEW_KINDS,
     RUN_STAGES,
@@ -78,7 +80,6 @@ from .orchestrator_lanes import (
     resolve_binds,
     route,
 )
-from .orchestrator_handoff import hand_off_dead_lanes
 from .orchestrator_llm import InvalidOutput, criteria_from, make_plan, understand
 from .orchestrator_replan import fail_dependents, replan_run
 from .postconditions import CheckContext
@@ -102,6 +103,7 @@ from .settings import get_settings
 log = logging.getLogger("ledger.orchestrator")
 
 from . import orchestrator_email  # noqa: E402,F401 - registers the email run stage (Track K)
+
 S = StepStatus
 ACTOR = "orchestrator"
 

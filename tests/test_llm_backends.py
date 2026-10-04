@@ -114,8 +114,8 @@ async def test_scripted_misses_and_errors_are_explicit(fixtures):
 
 async def test_scripted_works_with_assembled_prompts(fixtures):
     sb = ScriptedBackend(fixtures, emit_events=False)
-    prompt = assemble("meta_reviewer", {"kind": "review.ambiguity", "skill": "review", "postcondition": {"check": "review.decided"}},
-                      {"lead": {"name": "X"}}, [], [], Decision, fixture_key="lead:7")
+    step = {"kind": "review.ambiguity", "skill": "review", "postcondition": {"check": "review.decided"}}
+    prompt = assemble("meta_reviewer", step, {"lead": {"name": "X"}}, [], [], Decision, fixture_key="lead:7")
     assert (await sb.complete("meta_reviewer", prompt.messages, Decision)).confidence == 0.62
 
 

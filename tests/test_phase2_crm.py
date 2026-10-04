@@ -9,11 +9,8 @@ import json
 from pathlib import Path
 
 import pytest
-from crm_helpers import *  # noqa: F403
-from crm_helpers import admin_client
-from ledger_helpers import S, new_run, wait_for
 
-from ledger_core import faults, leases, ledger
+from ledger_core import faults, ledger
 from ledger_core.cli import submit_spec
 from ledger_core.events import read_events
 from ledger_core.keys import Keys
@@ -23,6 +20,10 @@ from ledger_core.services.worker_parser import parser_card
 from ledger_core.verifier import Verifier, make_context_factory
 from ledger_core.worker_base import Worker
 from ledger_core.workers.parser import make_handler as parser_handler
+
+from crm_helpers import *  # noqa: F403
+from crm_helpers import admin_client
+from ledger_helpers import S, new_run, wait_for
 
 pytestmark = pytest.mark.crm
 

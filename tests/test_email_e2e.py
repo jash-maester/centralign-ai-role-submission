@@ -21,9 +21,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from crm_helpers import admin_client, crm_secrets  # noqa: F401 - fixture
-from test_orchestrator import finish_step
-from test_orchestrator_crm import _scrub_crm
 
 from ledger_core import approval, judge, ledger, llm
 from ledger_core.config import RunConfig
@@ -42,6 +39,10 @@ from ledger_core.orchestrator_local import (
 from ledger_core.orchestrator_replan import reject_policy
 from ledger_core.protocol import RunStatus, StepKind, StepStatus
 from ledger_core.verifier import Verifier
+
+from crm_helpers import admin_client, crm_secrets  # noqa: F401 - fixture
+from test_orchestrator import finish_step
+from test_orchestrator_crm import _scrub_crm
 
 pytestmark = pytest.mark.crm
 

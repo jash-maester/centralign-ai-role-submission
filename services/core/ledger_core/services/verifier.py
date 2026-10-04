@@ -6,10 +6,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from ledger_core.judge import make_judge
 from ledger_core.keys import Keys
 from ledger_core.redis_conn import connect
 from ledger_core.settings import get_settings
-from ledger_core.judge import make_judge
 from ledger_core.verifier import Verifier, make_context_factory
 
 

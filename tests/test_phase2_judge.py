@@ -4,7 +4,6 @@ deterministic check passed, with role "verifier" (StubLLM; no network)."""
 from __future__ import annotations
 
 import pytest
-from ledger_helpers import S, lease, new_run
 
 from ledger_core import judge, leases, ledger
 from ledger_core.config import RunConfig
@@ -13,6 +12,8 @@ from ledger_core.llm import LLMBudgetExhausted
 from ledger_core.llm_testing import StubLLM
 from ledger_core.protocol import Claim, Postcondition, Skill, Step, StepKind
 from ledger_core.verifier import Verifier
+
+from ledger_helpers import S, lease, new_run
 
 ARGS = {"recipient": "priya@northwind.com", "first_name": "Priya", "event_name": "Signal Summit",
         "owner_name": "Alex Chen"}

@@ -11,9 +11,10 @@ pytest.importorskip("fastapi")
 
 from fastapi import HTTPException  # noqa: E402
 
-from api_helpers import api_client
 from ledger_core.llm_openrouter import utc_day
 from ledger_core.settings import get_settings
+
+from api_helpers import api_client
 
 
 @pytest.fixture

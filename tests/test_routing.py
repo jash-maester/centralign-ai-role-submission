@@ -14,10 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from crm_helpers import *  # noqa: F403
 from ledger_core.crm_api import is_probable, name_score, normalize_email, normalize_phone, split_name
 from ledger_core.dates import follow_up_due
 from ledger_core.routing import company_score, matching_accounts, owner_for, region_for_country
+
+from crm_helpers import *  # noqa: F403
 
 # --------------------------------------------------------------------------
 # demo data

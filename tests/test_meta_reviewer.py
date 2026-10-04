@@ -37,7 +37,8 @@ from ledger_core.protocol import (
     StepKind,
     StepStatus,
 )
-from ledger_core.verifier import Verifier, default_context
+from ledger_core.verifier import Verifier
+
 from test_orchestrator import _commit_searches, events, fanned_out
 
 S = StepStatus
@@ -296,7 +297,7 @@ DRAFTS = [{"id": "lead:1", "to": "priya@northwind.com", "subject": "Good to meet
 
 def judge_stub(*scores, flags=None) -> StubLLM:
     items = [{"id": d["id"], "score": s, "flags": (flags or {}).get(d["id"], []), "reasoning": "ok"}
-             for d, s in zip(DRAFTS, scores)]
+             for d, s in zip(DRAFTS, scores, strict=False)]
     return StubLLM().on("verifier", BatchJudgeVerdict, response={"items": items})
 
 
@@ -321,7 +322,7 @@ async def test_approval_rules_per_email(scores, cfg, approved, why):
     assert sorted(out.extra["items"]) == approved
     assert sorted(out.extra["escalated"]) == sorted({"lead:1", "lead:3"} - set(approved))
     assert out.extra["batch_decision"] == ("approve" if len(approved) == 2 else "partial" if approved else "escalate")
-    assert out.decision.confidence == min((s for d, s in zip(DRAFTS, scores) if d["id"] in approved), default=0.0)
+    assert out.decision.confidence == min((s for d, s in zip(DRAFTS, scores, strict=True) if d["id"] in approved), default=0.0)
     if why:
         assert all(why in e["reason"] for e in out.extra["escalated"].values())
         assert stub.calls == []  # no judge call when a human must decide

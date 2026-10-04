@@ -147,7 +147,8 @@ async def test_check_then_act_create_twice_makes_one_contact(op, admin, created,
     assert one.ok and one.acted, one.as_dict()
     assert one.data["recoveries"] == 0, one.as_dict()
     created.append(("Contact", one.record_id))
-    accounts = (await admin.get("/Account", params={"where[0][type]": "equals", "where[0][attribute]": "name", "where[0][value]": company})).json()["list"]
+    by_name = {"where[0][type]": "equals", "where[0][attribute]": "name", "where[0][value]": company}
+    accounts = (await admin.get("/Account", params=by_name)).json()["list"]
     assert len(accounts) == 1, "missing account was created once"
     created.insert(0, ("Account", accounts[0]["id"]))
 
@@ -156,7 +157,8 @@ async def test_check_then_act_create_twice_makes_one_contact(op, admin, created,
     assert two.acted is False
     assert two.record_id == one.record_id
     assert len(await contacts_by_email(admin, email)) == 1
-    accounts = (await admin.get("/Account", params={"where[0][type]": "equals", "where[0][attribute]": "name", "where[0][value]": company})).json()["list"]
+    by_name = {"where[0][type]": "equals", "where[0][attribute]": "name", "where[0][value]": company}
+    accounts = (await admin.get("/Account", params=by_name)).json()["list"]
     assert len(accounts) == 1
 
 

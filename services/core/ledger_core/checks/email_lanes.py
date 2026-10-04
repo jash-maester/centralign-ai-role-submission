@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..protocol import Claim, Criterion, Step, StepKind, StepStatus
 from ..postconditions import CheckContext, CheckResult
+from ..protocol import Claim, Criterion, Step, StepKind, StepStatus
 from ..verifier import register_facts
 from . import run as run_checks  # noqa: F401 - registered first, so this module's evaluators win
 from .run import FAILED, PENDING, VERIFIED, CriterionResult, register_criterion

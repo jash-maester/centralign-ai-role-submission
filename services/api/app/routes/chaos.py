@@ -86,7 +86,7 @@ async def clear_fault(fault: FaultName, r=Depends(get_r), keys: Keys = Depends(g
 async def _leases_held(r, keys: Keys, agent_id: str, run_id: str | None) -> list[str]:
     if not run_id:
         return []
-    from ledger_core import ledger, leases
+    from ledger_core import leases, ledger
     from ledger_core.protocol import StepStatus
 
     out = []
