@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Theme tokens (shared with Ledger Dashboard). */
+  html { --bg: #F4F4F2; --bg2: #EDEDEA; --panel: #FFFFFF; --panel2: #F7F7F5; --line: #E4E4E0; --line2: #D3D3CE; --dot: #D3D3CE;
+    --fg: #16171A; --fg2: #54575D; --fg3: #8A8D93; --accent: oklch(0.52 0.12 240);
+    --s-ready: #6F7F96; --s-leased: oklch(0.56 0.15 250); --s-claimed: oklch(0.62 0.15 70); --s-committed: oklch(0.55 0.14 155);
+    --s-rejected: oklch(0.56 0.19 25); --s-input: oklch(0.54 0.17 300); --s-dead: oklch(0.45 0.14 25); color-scheme: light; }
+  html[data-theme="dark"] { --bg: #0C0D0F; --bg2: #101114; --panel: #15161A; --panel2: #1A1B20; --line: #24262B; --line2: #2E3036; --dot: #25272D;
+    --fg: #E7E8EA; --fg2: #A3A7AE; --fg3: #6E737C; --accent: oklch(0.80 0.09 230);
+    --s-ready: #8593A8; --s-leased: oklch(0.72 0.13 250); --s-claimed: oklch(0.80 0.14 80); --s-committed: oklch(0.76 0.14 155);
+    --s-rejected: oklch(0.68 0.18 25); --s-input: oklch(0.72 0.13 300); --s-dead: oklch(0.55 0.15 25); color-scheme: dark; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--fg); }
+  button, input, textarea { font-family: inherit; }
+  /* packet travel along a wire (offset-path set per packet) */
+  @keyframes ldg-travel { 0% { offset-distance: 0%; opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } 100% { offset-distance: 100%; opacity: 0; } }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+</style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; height: 100vh; min-width: 1024px;">
+
+  <!-- ===================== TOP BAR: goal + playback + counters ===================== -->
+  <header style="height: 54px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--bg2);">
+    <div style="display: flex; align-items: center; gap: 9px; padding-right: 6px;">
+      <div style="width: 12px; height: 12px; border: 2px solid var(--fg); transform: rotate(45deg);"></div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; letter-spacing: 0.04em;">ledger</span>
+    </div>
+    <div style="display: flex; padding: 3px; border-radius: 8px; background: var(--bg2); gap: 2px;">
+      <a href="Ledger%20Dashboard.dc.html" onClick="{{ goDashboard }}" style="padding: 5px 12px; border-radius: 6px; font-size: 12.5px; color: var(--fg2);">Dashboard</a>
+      <a href="Ledger%20Dashboard.dc.html" onClick="{{ goReport }}" style="padding: 5px 12px; border-radius: 6px; font-size: 12.5px; color: var(--fg2);">Report</a>
+      <span style="padding: 5px 12px; border-radius: 6px; background: var(--panel); font-size: 12.5px; font-weight: 500;">Builder</span>
+    </div>
+    <input value="{{ goal }}" onChange="{{ setGoal }}" style="flex: 1; min-width: 140px; height: 34px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--fg); font-size: 13px; padding: 0 12px; outline: none;">
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <button onClick="{{ toggleRun }}" style="height: 34px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;">{{ runLabel }}</button>
+      <button onClick="{{ stepOnce }}" title="Advance one message" style="height: 34px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer;">Step</button>
+      <button onClick="{{ reset }}" title="Reset run" style="height: 34px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--fg2); font-size: 12px; cursor: pointer;">Reset</button>
+      <div style="display: flex; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden;">
+        <sc-for list="{{ speeds }}" as="sp" hint-placeholder-count="3">
+          <button onClick="{{ sp.pick }}" style="height: 32px; padding: 0 9px; border: 0; background: {{ sp.bg }}; color: {{ sp.fg }}; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer;">{{ sp.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display: flex; gap: 14px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2); white-space: nowrap; padding-left: 6px; min-width: 0; flex-shrink: 1; overflow: hidden;">
+      <span><span style="color: var(--fg3);">committed </span><span style="color: var(--s-committed);">{{ cCommitted }}</span>/{{ cTotal }}</span>
+      <span><span style="color: var(--fg3);">retries </span>{{ cRetries }}</span>
+      <span><span style="color: var(--fg3);">takeovers </span>{{ cTakeovers }}</span>
+      <span><span style="color: var(--fg3);">fallbacks </span>{{ cFallbacks }}</span>
+    </div>
+    <sc-if value="{{ ask }}" hint-placeholder-val="{{ false }}">
+      <button onClick="{{ openInput }}" style="height: 34px; padding: 0 12px; border: 1px solid var(--s-input); border-radius: 6px; background: color-mix(in oklch, var(--s-input) 18%, transparent); color: var(--s-input); font-size: 12px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 7px; white-space: nowrap;"><span style="width: 7px; height: 7px; border-radius: 50%; background: var(--s-input);"></span>Input required</button>
+    </sc-if>
+    <button onClick="{{ toggleTheme }}" style="height: 34px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--fg2); font-size: 12px; cursor: pointer;">{{ themeLabel }}</button>
+  </header>
+
+  <!-- ===================== MAIN: infinite canvas + overlays ===================== -->
+  <div style="flex: 1; min-height: 0; position: relative; overflow: hidden;">
+
+    <!-- canvas: drag background to pan, wheel to zoom -->
+    <div ref="{{ canvasRef }}" onMouseDown="{{ canvasDown }}" style="position: absolute; inset: 0; overflow: hidden; cursor: {{ canvasCursor }}; background-color: var(--bg); background-image: radial-gradient(var(--dot) 1.2px, transparent 1.2px); background-size: {{ grid }}px {{ grid }}px; background-position: {{ vx }}px {{ vy }}px;">
+      <!-- world: everything inside is in graph coordinates -->
+      <div style="position: absolute; left: 0; top: 0; transform-origin: 0 0; transform: translate({{ vx }}px, {{ vy }}px) scale({{ vk }});">
+
+        <!-- wires (bezier). Second path is a wide invisible hit area for selecting. -->
+        <svg width="1" height="1" style="position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none;">
+          <sc-for list="{{ wireList }}" as="w" hint-placeholder-count="0">
+            <g>
+              <path d="{{ w.d }}" fill="none" stroke-linecap="round" style="stroke: {{ w.c }}; stroke-width: {{ w.sw }}; stroke-opacity: {{ w.op }}; stroke-dasharray: {{ w.dash }};"></path>
+              <path d="{{ w.d }}" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" onMouseDown="{{ w.select }}"></path>
+            </g>
+          </sc-for>
+          <sc-if value="{{ temp }}" hint-placeholder-val="{{ false }}">
+            <path d="{{ temp.d }}" fill="none" style="stroke: {{ temp.c }}; stroke-width: 2; stroke-dasharray: 6 5;"></path>
+          </sc-if>
+        </svg>
+
+        <!-- nodes -->
+        <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="0">
+          <div style="position: absolute; left: {{ n.x }}px; top: {{ n.y }}px; width: {{ n.w }}px; background: var(--panel); border: 1px solid {{ n.border }}; border-radius: 8px; opacity: {{ n.op }}; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);">
+            <div onMouseDown="{{ n.down }}" style="height: 36px; border-top: 3px solid {{ n.rc }}; border-radius: 7px 7px 0 0; padding: 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--panel2); cursor: grab; user-select: none;">
+              <span style="font-size: 13px; font-weight: 500; white-space: nowrap;">{{ n.title }}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--fg3); white-space: nowrap;">{{ n.roleLabel }}</span>
+            </div>
+            <div style="padding: 6px 0;">
+              <sc-for list="{{ n.rows }}" as="r" hint-placeholder-count="1">
+                <div style="position: relative; height: 24px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg2); user-select: none;">
+                  <span style="padding-left: 14px; white-space: nowrap;">{{ r.ll }}</span>
+                  <span style="padding-right: 14px; white-space: nowrap;">{{ r.rl }}</span>
+                  <sc-if value="{{ r.l }}" hint-placeholder-val="{{ false }}">
+                    <span onMouseUp="{{ r.l.up }}" title="input pin" style="position: absolute; left: -8px; top: 4px; width: 16px; height: 16px; border-radius: 50%; border: 2px solid {{ r.l.c }}; background: {{ r.l.fill }}; cursor: crosshair;"></span>
+                  </sc-if>
+                  <sc-if value="{{ r.r }}" hint-placeholder-val="{{ false }}">
+                    <span onMouseDown="{{ r.r.down }}" title="drag to wire" style="position: absolute; right: -8px; top: 4px; width: 16px; height: 16px; border-radius: 50%; border: 2px solid {{ r.r.c }}; background: {{ r.r.fill }}; cursor: crosshair;"></span>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+            <div style="border-top: 1px solid var(--line); padding: 8px 12px; display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{ n.sc }}; min-height: 30px;">
+              <span style="flex: none; width: 7px; height: 7px; border-radius: 2px; background: {{ n.sc }};"></span>
+              <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ n.st }}</span>
+            </div>
+            <sc-if value="{{ n.hasInfo }}" hint-placeholder-val="{{ false }}">
+              <div style="padding: 0 12px 10px; display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--fg2); line-height: 1.4;">
+                <sc-for list="{{ n.info }}" as="line" hint-placeholder-count="1"><span>{{ line }}</span></sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+
+        <!-- message packets travelling along wires (animated) -->
+        {{ packetsEl }}
+      </div>
+    </div>
+
+    <!-- ===================== TOOLBAR (floating, top-left) ===================== -->
+    <div style="position: absolute; top: 12px; left: 12px; display: flex; align-items: center; gap: 6px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); padding: 0 6px;">ADD</span>
+      <sc-for list="{{ palette }}" as="p" hint-placeholder-count="3">
+        <button onClick="{{ p.add }}" style="height: 28px; padding: 0 10px; border: 1px solid var(--line2); border-radius: 5px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer; white-space: nowrap;" style-hover="background: var(--panel2);">+ {{ p.label }}</button>
+      </sc-for>
+      <span style="width: 1px; height: 20px; background: var(--line2); margin: 0 4px;"></span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--s-rejected); padding: 0 6px;">INJECT</span>
+      <sc-for list="{{ faultBtns }}" as="f" hint-placeholder-count="4">
+        <button onClick="{{ f.fire }}" title="{{ f.desc }}" style="height: 28px; padding: 0 10px; border: 1px solid color-mix(in oklch, var(--s-rejected) 40%, var(--line2)); border-radius: 5px; background: transparent; color: {{ f.fg }}; font-size: 12px; cursor: pointer; white-space: nowrap;" style-hover="background: color-mix(in oklch, var(--s-rejected) 14%, transparent);">{{ f.label }}</button>
+      </sc-for>
+      <span style="width: 1px; height: 20px; background: var(--line2); margin: 0 4px;"></span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); padding: 0 4px;">DETERMINISM</span>
+      <input type="range" min="0" max="100" step="5" value="{{ det }}" onChange="{{ setDet }}" title="{{ detTitle }}" style="width: 90px; accent-color: var(--fg); margin: 0;">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg); min-width: 30px;">{{ detLabel }}</span>
+    </div>
+
+    <!-- zoom controls -->
+    <div style="position: absolute; right: {{ overlayRight }}px; bottom: {{ overlayBottom }}px; display: flex; align-items: center; gap: 2px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11px;">
+      <button onClick="{{ zoomOut }}" style="width: 28px; height: 26px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); cursor: pointer;">−</button>
+      <span style="min-width: 44px; text-align: center; color: var(--fg2);">{{ zoomPct }}</span>
+      <button onClick="{{ zoomIn }}" style="width: 28px; height: 26px; border: 0; border-radius: 4px; background: transparent; color: var(--fg); cursor: pointer;">+</button>
+      <button onClick="{{ fit }}" style="height: 26px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--fg2); cursor: pointer;">fit</button>
+    </div>
+    <div style="position: absolute; left: 14px; bottom: {{ overlayBottom }}px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); pointer-events: none;">drag canvas to pan · scroll to zoom · drag from a pin to wire · click wire + Del to remove</div>
+
+    <!-- ===================== LEDGER STREAM (bottom, append-only) ===================== -->
+    <div style="position: absolute; left: 0; bottom: 0; right: {{ panelW }}px; height: {{ logH }}px; background: var(--bg2); border-top: 1px solid var(--line); display: flex; flex-direction: column;">
+      <div style="height: 34px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--line);">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg2); letter-spacing: 0.04em;">ledger:events</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3); white-space: nowrap;">{{ eventCount }} events · append-only</span>
+        <button onClick="{{ toggleLog }}" style="margin-left: auto; height: 22px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 4px; background: transparent; color: var(--fg2); font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; cursor: pointer;">{{ logToggleLabel }}</button>
+      </div>
+      <div ref="{{ logRef }}" style="flex: 1; min-height: 0; overflow: auto; padding: 4px 0;">
+        <sc-if value="{{ noEvents }}" hint-placeholder-val="{{ true }}">
+          <div style="padding: 14px; color: var(--fg3); font-size: 12px;">Press Run to watch the agents coordinate through the ledger.</div>
+        </sc-if>
+        <sc-for list="{{ events }}" as="e" hint-placeholder-count="0">
+          <div style="display: grid; grid-template-columns: 56px 120px 150px minmax(0, 1fr) 72px; gap: 12px; align-items: center; padding: 4px 14px; background: {{ e.bg }}; font-family: 'IBM Plex Mono', monospace; font-size: 11px;">
+            <span style="color: var(--fg3);">{{ e.t }}</span>
+            <span style="color: {{ e.ac }}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ e.actor }}</span>
+            <span style="color: var(--fg); white-space: nowrap;">{{ e.type }}</span>
+            <span style="color: var(--fg2); font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ e.payload }}</span>
+            <span style="font-size: 9.5px; letter-spacing: 0.06em; color: {{ e.tagC }}; text-align: right;">{{ e.tag }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- ===================== RIGHT PANEL: inspector / input / evidence ===================== -->
+    <sc-if value="{{ panelOpen }}" hint-placeholder-val="{{ false }}">
+      <aside onMouseDown="{{ stop }}" style="position: absolute; top: 0; right: 0; bottom: 0; width: 400px; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; box-shadow: -12px 0 32px rgba(0, 0, 0, 0.1);">
+
+        <!-- INSPECTOR: agent card for the selected node -->
+        <sc-if value="{{ isInspect }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; min-height: 0; height: 100%;">
+            <div style="padding: 18px 20px 14px; border-top: 3px solid {{ insp.rc }}; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 16px; font-weight: 500;">{{ insp.title }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ insp.id }} · {{ insp.roleLabel }}</span>
+              </div>
+              <button onClick="{{ closePanel }}" style="border: 1px solid var(--line2); background: transparent; color: var(--fg2); border-radius: 4px; padding: 3px 8px; cursor: pointer;">×</button>
+            </div>
+            <div style="flex: 1; overflow: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 18px;">
+              <p style="margin: 0; line-height: 1.55; color: var(--fg); text-wrap: pretty;">{{ insp.desc }}</p>
+              <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 6px; background: var(--bg); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{ insp.sc }};">
+                <span style="width: 7px; height: 7px; border-radius: 2px; background: {{ insp.sc }};"></span>{{ insp.st }}
+              </div>
+              <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px 12px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">
+                <span style="color: var(--fg3);">skills</span><span>{{ insp.skills }}</span>
+                <span style="color: var(--fg3);">model</span><span>{{ insp.model }}</span>
+                <span style="color: var(--fg3);">fallback</span><span>{{ insp.fallback }}</span>
+                <span style="color: var(--fg3);">reads</span><span style="color: var(--fg2);">{{ insp.reads }}</span>
+                <span style="color: var(--fg3);">writes</span><span style="color: var(--fg2);">{{ insp.writes }}</span>
+              </div>
+              <sc-if value="{{ insp.unwired }}" hint-placeholder-val="{{ false }}">
+                <div style="padding: 10px 12px; border: 1px dashed var(--line2); border-radius: 6px; color: var(--fg2); font-size: 12px; line-height: 1.5;">Not wired yet. Drag from a <span style="font-family: 'IBM Plex Mono', monospace;">queue:</span> pin on the Ledger into this node's <span style="font-family: 'IBM Plex Mono', monospace;">lease</span> pin, then its <span style="font-family: 'IBM Plex Mono', monospace;">claim</span> into the Verifier.</div>
+              </sc-if>
+              <sc-if value="{{ insp.hasList }}" hint-placeholder-val="{{ false }}">
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em;">{{ insp.listTitle }}</span>
+                  <sc-for list="{{ insp.list }}" as="it" hint-placeholder-count="3">
+                    <div style="display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; font-size: 12.5px; line-height: 1.45; padding: 6px 0; border-bottom: 1px solid var(--line);">
+                      <span style="font-family: 'IBM Plex Mono', monospace; color: {{ it.c }};">{{ it.icon }}</span>
+                      <span style="text-wrap: pretty;">{{ it.text }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{ insp.removable }}" hint-placeholder-val="{{ false }}">
+                <button onClick="{{ removeSelected }}" style="align-self: flex-start; padding: 7px 12px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--s-rejected); font-size: 12px; cursor: pointer;">Remove agent</button>
+              </sc-if>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- INPUT REQUIRED: opens automatically when a step lands in queue:human -->
+        <sc-if value="{{ isInput }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; min-height: 0; height: 100%;">
+            <div style="padding: 18px 20px 14px; border-top: 3px solid var(--s-input); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--s-input);">input required · queue:human</span>
+                <span style="font-size: 16px; font-weight: 500;">{{ askTitle }}</span>
+              </div>
+              <button onClick="{{ closePanel }}" style="border: 1px solid var(--line2); background: transparent; color: var(--fg2); border-radius: 4px; padding: 3px 8px; cursor: pointer;">×</button>
+            </div>
+
+            <sc-if value="{{ noAsk }}" hint-placeholder-val="{{ false }}">
+              <div style="padding: 20px; color: var(--fg2);">Nothing is waiting on you. When a step needs a decision it lands here.</div>
+            </sc-if>
+
+            <!-- batched clarification -->
+            <sc-if value="{{ isClar }}" hint-placeholder-val="{{ false }}">
+              <div style="flex: 1; overflow: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;">
+                <div style="font-size: 12px; color: var(--fg2); line-height: 1.5;"><span style="font-family: 'IBM Plex Mono', monospace; color: var(--fg3);">meta-reviewer </span>Resolved 2 of 3 ambiguous rows automatically. This one scored 0.52, below the 0.80 auto threshold.</div>
+                <sc-for list="{{ clarRows }}" as="cr" hint-placeholder-count="3">
+                  <div style="border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; gap: 8px;"><span style="font-weight: 500;">{{ cr.name }}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ cr.src }}</span></div>
+                    <div style="font-size: 12px; color: var(--fg2); line-height: 1.45;">{{ cr.why }}</div>
+                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg2);">found: {{ cr.found }}</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                      <sc-for list="{{ cr.opts }}" as="o" hint-placeholder-count="3">
+                        <button onClick="{{ o.pick }}" style="padding: 6px 10px; border-radius: 5px; border: 1px solid {{ o.border }}; background: {{ o.bg }}; color: {{ o.fg }}; font-size: 12px; cursor: pointer;">{{ o.label }}</button>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="padding: 14px 20px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px;">
+                <span style="font-size: 12px; color: var(--fg2); line-height: 1.45;">Your answer is committed as a fact and the lane goes back to <span style="font-family: 'IBM Plex Mono', monospace;">ready</span>.</span>
+                <button onClick="{{ submitClar }}" style="height: 36px; border: 0; border-radius: 6px; background: var(--s-input); color: #FFFFFF; font-weight: 600; cursor: pointer;">Commit decision</button>
+              </div>
+            </sc-if>
+
+            <!-- email approval -->
+            <sc-if value="{{ isApprove }}" hint-placeholder-val="{{ false }}">
+              <div style="flex: 1; overflow: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px;">
+                <div style="font-size: 12px; color: var(--fg2); line-height: 1.5;"><span style="font-family: 'IBM Plex Mono', monospace; color: var(--fg3);">rule </span>Playbook § Approval: every external email needs approval.</div>
+                <sc-for list="{{ emails }}" as="m" hint-placeholder-count="8">
+                  <div style="border: 1px solid var(--line); border-radius: 8px;">
+                    <div onClick="{{ m.toggle }}" style="display: grid; grid-template-columns: 18px minmax(0, 1fr) 14px; gap: 10px; align-items: center; padding: 10px 12px; cursor: pointer;">
+                      <span onClick="{{ m.toggleSel }}" style="width: 16px; height: 16px; border-radius: 4px; border: 1px solid {{ m.boxBorder }}; background: {{ m.boxBg }}; display: grid; place-items: center; color: var(--bg); font-size: 11px; font-weight: 600;">{{ m.check }}</span>
+                      <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ m.to }}</span>
+                        <span style="font-size: 12px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ m.subject }}</span>
+                      </div>
+                      <span style="color: var(--fg3); font-size: 11px;">{{ m.caret }}</span>
+                    </div>
+                    <sc-if value="{{ m.open }}" hint-placeholder-val="{{ false }}">
+                      <div style="padding: 0 12px 12px;">
+                        <textarea defaultValue="{{ m.body }}" style="width: 100%; min-height: 120px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--fg); font-size: 12.5px; line-height: 1.55; padding: 10px; resize: vertical; outline: none;"></textarea>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="padding: 14px 20px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px;">
+                <span style="font-size: 12px; color: var(--fg2); line-height: 1.45;">Approved emails go to the mailer. The verifier then checks Mailpit for exactly one message per recipient.</span>
+                <div style="display: flex; gap: 8px;">
+                  <button onClick="{{ submitApprove }}" style="flex: 1; height: 36px; border: 0; border-radius: 6px; background: var(--s-input); color: #FFFFFF; font-weight: 600; cursor: pointer;">Approve {{ selCount }}</button>
+                  <button onClick="{{ rejectAll }}" style="height: 36px; padding: 0 14px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--s-rejected); cursor: pointer;">Reject all</button>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- EVIDENCE: opens when the run completes -->
+        <sc-if value="{{ isEvidence }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; min-height: 0; height: 100%;">
+            <div style="padding: 18px 20px 14px; border-top: 3px solid var(--s-committed); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--s-committed);">run completed · evidence</span>
+                <span style="font-size: 16px; font-weight: 500;">Every outcome checked against the CRM</span>
+              </div>
+              <button onClick="{{ closePanel }}" style="border: 1px solid var(--line2); background: transparent; color: var(--fg2); border-radius: 4px; padding: 3px 8px; cursor: pointer;">×</button>
+            </div>
+            <div style="flex: 1; overflow: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 20px;">
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                <sc-for list="{{ outcome }}" as="o" hint-placeholder-count="4">
+                  <div style="padding: 10px; border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; gap: 4px;">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; color: {{ o.c }};">{{ o.n }}</span>
+                    <span style="font-size: 11px; color: var(--fg2);">{{ o.label }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em;">What broke and how it recovered</span>
+                <sc-if value="{{ noFaults }}" hint-placeholder-val="{{ true }}">
+                  <span style="color: var(--fg2); font-size: 12px;">No faults injected this run. Use INJECT in the toolbar during a run.</span>
+                </sc-if>
+                <sc-for list="{{ recoveries }}" as="rc" hint-placeholder-count="0">
+                  <div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line);">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--s-rejected);">{{ rc.fault }}</span>
+                    <span style="font-size: 12.5px; line-height: 1.45; text-wrap: pretty;">{{ rc.recovery }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em;">Committed facts</span>
+                <sc-for list="{{ facts }}" as="f" hint-placeholder-count="0">
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg);">{{ f }}</span>
+                </sc-for>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button style="padding: 7px 12px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer;">Export .md</button>
+                <button style="padding: 7px 12px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer;">Export PDF</button>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </aside>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;autoOpenInput&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;showPacketLabels&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+/**
+ * Ledger Canvas — node-graph control room for the Ledger AI operator.
+ *
+ * Concept shown on the canvas:
+ *   - The LEDGER (Redis) is the only channel. Nobody talks to anybody directly.
+ *   - The ORCHESTRATOR turns goal + playbook into steps and writes task.submit.
+ *   - Workers LEASE steps from per-skill queues, act, and write a CLAIM.
+ *   - The VERIFIER checks claims through a different channel (REST / API)
+ *     and is the only one allowed to COMMIT a fact.
+ *   - The HUMAN is just another agent consuming queue:human.
+ *
+ * Front-end only. SCRIPT / FAULTS are a scripted playback of ledger events.
+ * Backend integration: replace the playback loop with the SSE stream
+ * (GET /stream?run_id=) and call this.applyBeat() per event; replace
+ * submitClar / submitApprove with POST /approvals/{id}; INJECT → POST /chaos/{fault}.
+ */
+
+// ---------------------------------------------------------------------------
+// Palette
+// ---------------------------------------------------------------------------
+const C = {
+  idle: 'var(--fg3)', text2: 'var(--fg2)',
+  task: 'var(--s-leased)',     // task / lease (blue)
+  claim: 'var(--s-claimed)',     // claim — "says it's done, not yet proven" (amber)
+  fact: 'var(--s-committed)',     // committed fact (green)
+  human: 'var(--s-input)',    // input required (violet)
+  red: 'var(--s-rejected)',
+  dead: 'var(--s-dead)',
+  exec: 'var(--fg)',                  // goal / playbook
+  io: 'var(--s-ready)',                    // external system I/O
+};
+// Node status → colour. Mirrors the step state machine.
+const STATUS_C = { idle: C.idle, leased: C.task, claimed: C.claim, committed: C.fact, input: C.human, dead: C.dead };
+// Node role → header colour + label.
+const ROLE = {
+  input:    { c: C.text2,  label: 'input' },
+  orch:     { c: C.exec,   label: 'orchestrator' },
+  ledger:   { c: C.exec,   label: 'redis · source of truth' },
+  worker:   { c: C.task,   label: 'worker' },
+  verifier: { c: C.fact,   label: 'verifier' },
+  human:    { c: C.human,  label: 'agent · human' },
+  meta:     { c: C.human,  label: 'auto ≥ 0.80' },
+  ext:      { c: C.idle,   label: 'external' },
+};
+
+// ---------------------------------------------------------------------------
+// Graph definition. Pins: ins on the left, outs on the right. t = data type,
+// wires may only connect pins of the same type.
+// ---------------------------------------------------------------------------
+const P = (id, label, t) => ({ id, label, t });
+const NODES = [
+  { id: 'goal', role: 'input', title: 'Goal', x: 0, y: 200, w: 230, ins: [], outs: [P('goal', 'goal', 'exec')], status: ['idle', 'one line + file'] },
+  { id: 'playbook', role: 'input', title: 'Playbook', x: 0, y: 360, w: 230, ins: [], outs: [P('pb', '6 sections', 'exec')], status: ['idle', 'event-leads.md · v3'] },
+  { id: 'orch', role: 'orch', title: 'Orchestrator', x: 290, y: 250, w: 230,
+    ins: [P('goal', 'goal', 'exec'), P('playbook', 'playbook', 'exec'), P('facts', 'facts', 'fact')], outs: [P('tasks', 'task.submit', 'task')] },
+  { id: 'ledger', role: 'ledger', title: 'Ledger', x: 580, y: 150, w: 290,
+    ins: [P('tasks', 'task.submit', 'task'), P('verdicts', 'commit/reject', 'fact'), P('answers', 'input.answered', 'human')],
+    outs: [P('q_parse', 'queue:file.parse', 'task'), P('q_browser', 'queue:browser.espocrm', 'task'), P('q_draft', 'queue:email.draft', 'task'),
+           P('q_send', 'queue:email.send', 'task'), P('q_review', 'queue:review', 'task'), P('q_human', 'queue:human', 'human'), P('facts', 'facts', 'fact')] },
+  { id: 'parser',  role: 'worker', title: 'Parser',             x: 940, y: 0,   w: 230, ins: [P('lease', 'lease', 'task')], outs: [P('claim', 'claim', 'claim')] },
+  { id: 'b1',      role: 'worker', title: 'Browser operator 1', x: 940, y: 118, w: 230, ins: [P('lease', 'lease', 'task')], outs: [P('claim', 'claim', 'claim'), P('act', 'act · UI', 'io')] },
+  { id: 'b2',      role: 'worker', title: 'Browser operator 2', x: 940, y: 262, w: 230, ins: [P('lease', 'lease', 'task')], outs: [P('claim', 'claim', 'claim'), P('act', 'act · UI', 'io')] },
+  { id: 'drafter', role: 'worker', title: 'Drafter',            x: 940, y: 406, w: 230, ins: [P('lease', 'lease', 'task')], outs: [P('claim', 'claim', 'claim')] },
+  { id: 'mailer',  role: 'worker', title: 'Mailer',             x: 940, y: 524, w: 230, ins: [P('lease', 'lease', 'task')], outs: [P('claim', 'claim', 'claim'), P('act', 'act · SMTP', 'io')] },
+  { id: 'human',   role: 'human',  title: 'Human (you)',        x: 940, y: 668, w: 230, ins: [P('q', 'input.requested', 'human')], outs: [P('answer', 'answer', 'human')] },
+  { id: 'verifier', role: 'verifier', title: 'Verifier', x: 1250, y: 230, w: 250,
+    ins: [P('claims', 'claims', 'claim')], outs: [P('verdict', 'commit/reject', 'fact'), P('rest', 'read · REST', 'io'), P('mail', 'read · Mailpit', 'io')] },
+  // Meta-reviewer: decides review steps (ambiguity, approvals); escalates below threshold.
+  { id: 'meta', role: 'meta', title: 'Meta-reviewer', x: 1250, y: 450, w: 250,
+    ins: [P('lease', 'queue:review', 'task')], outs: [P('decision', 'decide / escalate', 'fact'), P('rest', 'read · REST', 'io')] },
+  { id: 'crm',     role: 'ext', title: 'EspoCRM', x: 1580, y: 150, w: 190, ins: [P('ui', 'browser UI', 'io'), P('rest', 'REST API', 'io')], outs: [], status: ['idle', 'company system'] },
+  { id: 'mailpit', role: 'ext', title: 'Mailpit', x: 1580, y: 470, w: 190, ins: [P('smtp', 'SMTP', 'io'), P('api', 'API', 'io')], outs: [], status: ['idle', 'smtp sink'] },
+];
+// Default wiring. Wire id = "node.pin>node.pin".
+const WIRES = [
+  'goal.goal>orch.goal', 'playbook.pb>orch.playbook', 'orch.tasks>ledger.tasks', 'ledger.facts>orch.facts',
+  'ledger.q_parse>parser.lease', 'ledger.q_browser>b1.lease', 'ledger.q_browser>b2.lease', 'ledger.q_draft>drafter.lease',
+  'ledger.q_send>mailer.lease', 'ledger.q_human>human.q',
+  'parser.claim>verifier.claims', 'b1.claim>verifier.claims', 'b2.claim>verifier.claims', 'drafter.claim>verifier.claims', 'mailer.claim>verifier.claims',
+  'b1.act>crm.ui', 'b2.act>crm.ui', 'mailer.act>mailpit.smtp',
+  'verifier.verdict>ledger.verdicts', 'verifier.rest>crm.rest', 'verifier.mail>mailpit.api', 'human.answer>ledger.answers',
+  'ledger.q_review>meta.lease', 'meta.decision>ledger.verdicts', 'meta.rest>crm.rest',
+];
+// Agent templates for the ADD toolbar.
+const TEMPLATES = {
+  browser: { role: 'worker', title: 'Browser operator', ins: [P('lease', 'lease', 'task')], outs: [P('claim', 'claim', 'claim'), P('act', 'act · UI', 'io')], info: 'b' },
+  drafter: { role: 'worker', title: 'Drafter', ins: [P('lease', 'lease', 'task')], outs: [P('claim', 'claim', 'claim')], info: 'drafter' },
+  human:   { role: 'human', title: 'Human reviewer', ins: [P('q', 'input.requested', 'human')], outs: [P('answer', 'answer', 'human')], info: 'human' },
+};
+
+// Inspector copy per agent (would come from GET /agents → agent cards).
+const CARD = {
+  goal: { desc: 'One plain-language request plus the attendee file. Nothing else is specified; the playbook fills in the rest.', skills: '—', model: '—', fallback: '—', reads: '—', writes: 'run.created', list: 'goal' },
+  playbook: { desc: 'Company context. Each worker gets only the sections that apply to its step.', skills: '—', model: '—', fallback: '—', reads: '—', writes: '—', list: 'playbook' },
+  orch: { desc: 'Turns the goal + playbook into checkable success criteria and a step graph. Names only skills, never workers. Replans after repeated rejections and reaps expired leases.', skills: 'plan · route · replan · reap', model: 'claude-sonnet-4.5', fallback: 'gpt-4.1', reads: 'facts only', writes: 'task.submit, plan.*', list: 'criteria' },
+  ledger: { desc: 'The single source of committed truth: append-only events, step records, leases with fencing tokens, per-skill queues and committed facts. Agents never read each other\'s chat.', skills: 'streams · hashes · AOF', model: '—', fallback: '—', reads: '—', writes: '—', list: 'facts' },
+  b: { desc: 'Drives EspoCRM through the browser. Check-then-act: if the postcondition already holds it claims done without acting, so takeovers never duplicate.', skills: 'browser.espocrm', model: 'claude-haiku-4.5', fallback: 'gpt-4.1-mini', reads: 'queue:browser.espocrm', writes: 'claim + screenshot' },
+  parser: { desc: 'Normalises the messy CSV: names, emails, phones, companies. Flags unusable rows with a reason.', skills: 'file.csv · file.pdf', model: 'claude-haiku-4.5', fallback: 'gpt-4.1-mini', reads: 'queue:file.parse', writes: 'claim' },
+  drafter: { desc: 'Writes one follow-up email per lead from committed facts only, following the playbook tone rules.', skills: 'email.draft', model: 'claude-haiku-4.5', fallback: 'gpt-4.1-mini', reads: 'queue:email.draft', writes: 'claim' },
+  mailer: { desc: 'Sends only emails that have a committed approval fact.', skills: 'email.send', model: '— (no LLM)', fallback: '—', reads: 'queue:email.send', writes: 'claim' },
+  human: { desc: 'You are the last agent on the bus. Only escalations the meta-reviewer could not decide reach queue:human; your answer is committed as a fact like any other.', skills: 'approve · clarify', model: '—', fallback: '—', reads: 'queue:human', writes: 'input.answered' },
+  verifier: { desc: 'The only agent that can commit. Reads the world through a different channel than the one used to act: REST for the CRM, the API for Mailpit. Deterministic checks first, then an LLM judge where no hard check exists.', skills: 'verify · commit', model: 'gemini-2.5-flash', fallback: 'gpt-4.1', reads: 'claims, CRM REST, Mailpit API', writes: 'commit / reject, facts', list: 'checks' },
+  meta: { desc: 'Decides review steps automatically: ambiguous rows and approvals the playbook requires. Commits when confidence clears the threshold; only below it does a step go to queue:human.', skills: 'review.ambiguity · review.approval', model: 'claude-sonnet-4.5', fallback: 'gpt-4.1', reads: 'queue:review, facts, CRM REST (read-only)', writes: 'review.resolved, approval.auto, review.escalated' },
+  crm: { desc: 'The company system being operated. Workers act on its UI; the verifier reads its REST API.', skills: '—', model: '—', fallback: '—', reads: '—', writes: '—' },
+  mailpit: { desc: 'SMTP sink. Real sends, nothing leaves the laptop.', skills: '—', model: '—', fallback: '—', reads: '—', writes: '—' },
+};
+const LISTS = {
+  criteria: ['Every usable row is a CRM contact exactly once', 'Existing contacts enriched, not duplicated', 'Each contact has a follow-up task due in 2 business days', 'Owner assigned per routing rules', 'Rows without email skipped with a reason', 'Emails sent only after approval'],
+  checks: ['file.parsed_rows', 'crm.contact_exists', 'crm.no_duplicate', 'crm.task_exists', 'email.draft_valid (then LLM judge)', 'email.sent', 'run.criteria_met'],
+  playbook: ['Dedupe rules', 'Owner routing', 'Follow-up policy', 'Approval policy', 'Escalation rules', 'Definitions of done'],
+  goal: ["Add the leads from yesterday's event to the CRM and set up follow-ups.", 'event_attendees.csv · 12 rows'],
+};
+
+// ---------------------------------------------------------------------------
+// Playback script. Each beat = one message on the bus.
+//   w: wire it travels   l: packet label   ev: [actor, type, payload]
+//   st: node status updates   fact: committed fact text
+//   ask: pauses and opens the input panel   end: run completed
+// ---------------------------------------------------------------------------
+const b = (w, l, ev, x = {}) => ({ w, l, ev, ...x });
+const SCRIPT = [
+  b('goal.goal>orch.goal', 'goal', ['orchestrator', 'run.created', 'goal + event_attendees.csv'], { st: { orch: ['leased', 'understanding goal'] } }),
+  b('playbook.pb>orch.playbook', 'playbook', ['orchestrator', 'run.understood', '6 success criteria derived'], {}),
+  b('orch.tasks>ledger.tasks', 'plan · 3 steps', ['orchestrator', 'plan.created', 'understand → plan → file.parse'], { total: 3, add: 2, st: { orch: ['idle', 'waiting on facts'] } }),
+  b('ledger.q_parse>parser.lease', 'stp_03 file.parse', ['ledger', 'step.leased', 'stp_03 → parser · token 1'], { st: { parser: ['leased', 'stp_03 file.parse'] } }),
+  b('parser.claim>verifier.claims', 'claim · 12 rows', ['parser', 'step.claimed', 'stp_03 · 12 rows, 2 flagged'], { st: { parser: ['idle', 'idle'], verifier: ['claimed', 'checking stp_03'] } }),
+  b('verifier.verdict>ledger.verdicts', 'commit stp_03', ['verifier', 'step.committed', 'file.parsed_rows ✓ 12 = 12'], { add: 1, fact: 'file.rows = 12 (2 flagged)', st: { verifier: ['idle', 'idle'] } }),
+  b('ledger.facts>orch.facts', 'fact · 12 rows', ['orchestrator', 'plan.revised', 'fan-out: +20 steps across 5 lead lanes'], { total: 23, st: { orch: ['leased', 'fanning out'] } }),
+  b('orch.tasks>ledger.tasks', '20 × task.submit', ['ledger', 'step.ready', '20 steps queued by skill'], { st: { orch: ['idle', 'watching'] } }),
+  b('ledger.q_browser>b1.lease', 'stp_31 · Dana', ['ledger', 'step.leased', 'stp_31 create_contact → browser-op-1 · token 1'], { st: { b1: ['leased', 'stp_31 create_contact'] } }),
+  b('ledger.q_browser>b2.lease', 'stp_41 · Tom', ['ledger', 'step.leased', 'stp_41 create_contact → browser-op-2 · token 1'], { st: { b2: ['leased', 'stp_41 create_contact'] } }),
+  b('b1.act>crm.ui', 'fill + save', ['browser-op-1', 'step.observation', 'Dana Okafor saved · screenshot']),
+  b('b1.claim>verifier.claims', 'claim · created', ['browser-op-1', 'step.claimed', 'stp_31 "contact created"'], { st: { b1: ['idle', 'idle'], verifier: ['claimed', 'checking stp_31'] } }),
+  b('verifier.rest>crm.rest', 'GET ?email=dana@…', ['verifier', 'step.observation', 'REST · 1 record, owner a.chen']),
+  b('verifier.verdict>ledger.verdicts', 'commit stp_31', ['verifier', 'step.committed', 'crm.contact_exists ✓'], { add: 4, fact: 'lead:3.contact = crm/5f2c', st: { verifier: ['idle', 'idle'] } }),
+  b('b2.act>crm.ui', 'fill + save', ['browser-op-2', 'step.observation', 'Tom Becker saved · screenshot']),
+  b('b2.claim>verifier.claims', 'claim · created', ['browser-op-2', 'step.claimed', 'stp_41 "contact created"'], { st: { b2: ['idle', 'idle'], verifier: ['claimed', 'checking stp_41'] } }),
+  b('verifier.rest>crm.rest', 'GET ?email=tom@…', ['verifier', 'step.observation', 'REST · 1 record']),
+  b('verifier.verdict>ledger.verdicts', 'commit stp_41', ['verifier', 'step.committed', 'crm.contact_exists ✓'], { add: 4, fact: 'lead:4.contact = crm/5f31', st: { verifier: ['idle', 'idle'] } }),
+  b('ledger.q_browser>b1.lease', 'stp_50 · Sam Ito', ['ledger', 'step.leased', 'stp_50 search_contact → browser-op-1'], { st: { b1: ['leased', 'stp_50 search_contact'] } }),
+  b('b1.act>crm.ui', 'search "Lumen"', ['browser-op-1', 'step.observation', '2 accounts match "Lumen"']),
+  b('b1.claim>verifier.claims', 'claim · ambiguous', ['browser-op-1', 'step.claimed', 'stp_50 · ambiguous match'], { st: { b1: ['idle', 'idle'] } }),
+  b('verifier.verdict>ledger.verdicts', 'commit · ambiguous', ['verifier', 'step.committed', '3 rows flagged ambiguous'], { add: 2, fact: 'ambiguous = rows 7, 9, 11' }),
+  b('ledger.facts>orch.facts', '3 ambiguous rows', ['orchestrator', 'review.requested', '3 ambiguous rows → queue:review'], { st: { orch: ['idle', 'watching'] } }),
+  b('ledger.q_review>meta.lease', 'stp_60 · 3 rows', ['ledger', 'step.leased', 'stp_60 review → meta-reviewer'], { st: { meta: ['leased', 'reviewing 3 rows'] } }),
+  b('meta.rest>crm.rest', 'GET accounts, contacts', ['meta-reviewer', 'step.observation', 'read-only lookups for rows 7, 9, 11']),
+  b('meta.decision>ledger.verdicts', '2 decided · 1 escalate', ['meta-reviewer', 'review.resolved', 'Ben Ortiz → existing (0.91) · Jo Park → skip (0.88)'], { add: 2, fact: 'lead:7 = existing · lead:11 = skipped', st: { meta: ['input', 'escalated Sam Ito (0.52)'] } }),
+  b('ledger.q_human>human.q', 'Sam Ito · 1 decision', ['ledger', 'review.escalated', 'lead:9 Sam Ito · confidence 0.52 < 0.80'], { ask: 'clar', st: { human: ['input', '1 escalation'] } }),
+  b('ledger.q_draft>drafter.lease', 'stp_70 · 8 drafts', ['ledger', 'step.leased', 'stp_70 email.draft → drafter'], { st: { drafter: ['leased', 'drafting 8 emails'], orch: ['idle', 'watching'] } }),
+  b('drafter.claim>verifier.claims', 'claim · 8 drafts', ['drafter', 'step.claimed', '8 drafts from committed facts'], { st: { drafter: ['idle', 'idle'], verifier: ['claimed', 'email.draft_valid'] } }),
+  b('verifier.verdict>ledger.verdicts', 'commit drafts', ['verifier', 'step.committed', 'merge fields ✓ · tone judge ✓'], { add: 3, fact: 'drafts = 8', st: { verifier: ['idle', 'idle'] } }),
+  b('ledger.q_review>meta.lease', 'stp_78 approve 8', ['ledger', 'step.leased', 'stp_78 approval → meta-reviewer'], { st: { meta: ['leased', 'judging 8 emails'] } }),
+  b('meta.decision>ledger.verdicts', 'auto-approve 8', ['meta-reviewer', 'approval.auto', 'judge min 0.94 ≥ 0.90 · no policy flags'], { fact: 'approvals = 8 of 8 (auto)', st: { meta: ['idle', 'idle'] } }),
+  b('ledger.q_send>mailer.lease', 'stp_80 send', ['ledger', 'step.leased', 'stp_80 email.send → mailer'], { st: { mailer: ['leased', 'sending approved'] } }),
+  b('mailer.act>mailpit.smtp', 'SMTP', ['mailer', 'step.observation', 'SMTP 250 OK']),
+  b('mailer.claim>verifier.claims', 'claim · sent', ['mailer', 'step.claimed', 'stp_80'], { st: { mailer: ['idle', 'idle'], verifier: ['claimed', 'email.sent'] } }),
+  b('verifier.mail>mailpit.api', 'GET /messages', ['verifier', 'step.observation', 'Mailpit · 1 message per recipient']),
+  b('verifier.verdict>ledger.verdicts', 'commit · criteria met', ['verifier', 'run.completed', 'run.criteria_met ✓ all 6'], { end: true, st: { verifier: ['committed', 'run verified'], orch: ['committed', 'completed'] } }),
+];
+
+// Fault injections: beat sequences spliced in at the current cursor.
+const FAULTS = {
+  false_claim: { label: 'False claim', desc: 'Next browser step reports success without acting', recovery: 'Verifier read the CRM over REST, found 0 records, rejected. Attempt 2 included the rejection reason and committed.', beats: () => [
+    b(null, null, ['chaos', 'fault.injected', 'false_claim armed on browser.espocrm'], { fault: true }),
+    b('ledger.q_browser>b1.lease', 'stp_44 · Lena', ['ledger', 'step.leased', 'stp_44 create_contact → browser-op-1'], { st: { b1: ['leased', 'stp_44 create_contact'] } }),
+    b('b1.claim>verifier.claims', 'claim · done (fake)', ['browser-op-1', 'step.claimed', 'stp_44 "contact created"'], { fault: true, st: { b1: ['idle', 'idle'], verifier: ['claimed', 'checking stp_44'] } }),
+    b('verifier.rest>crm.rest', 'GET → 0 records', ['verifier', 'step.observation', 'REST · 0 records for lena@kestrel-labs.io']),
+    b('verifier.verdict>ledger.verdicts', 'reject stp_44', ['verifier', 'step.rejected', 'no record via REST → retry with reason'], { rec: true, inc: 'retries', st: { verifier: ['idle', 'idle'] } }),
+    b('ledger.q_browser>b1.lease', 'stp_44 · attempt 2', ['ledger', 'step.leased', 'stp_44 attempt 2 · prompt includes rejection'], { rec: true, st: { b1: ['leased', 'stp_44 · attempt 2'] } }),
+    b('b1.act>crm.ui', 'fill + save', ['browser-op-1', 'step.observation', 'Lena Fischer saved · screenshot']),
+    b('b1.claim>verifier.claims', 'claim · created', ['browser-op-1', 'step.claimed', 'stp_44'], { st: { b1: ['idle', 'idle'], verifier: ['claimed', 'checking stp_44'] } }),
+    b('verifier.rest>crm.rest', 'GET → 1 record', ['verifier', 'step.observation', 'REST · 1 record']),
+    b('verifier.verdict>ledger.verdicts', 'commit stp_44', ['verifier', 'step.committed', 'crm.contact_exists ✓'], { add: 1, fact: 'lead:5.contact = crm/5f40', st: { verifier: ['idle', 'idle'] } }),
+  ] },
+  kill: { label: 'Kill worker', desc: 'Terminate the browser operator holding a lease', recovery: 'browser-op-1 died holding stp_45. Its lease expired, the fencing token went up, and browser-op-2 took over. Check-then-act avoided a duplicate.', beats: () => [
+    b('ledger.q_browser>b1.lease', 'stp_45 · Omar', ['ledger', 'step.leased', 'stp_45 create_contact → browser-op-1 · token 1'], { st: { b1: ['leased', 'stp_45 create_contact'] } }),
+    b(null, null, ['chaos', 'fault.injected', 'SIGKILL browser-op-1 (holding stp_45)'], { fault: true, kill: 'b1', st: { b1: ['dead', 'lost · dropped stp_45'] } }),
+    b(null, null, ['orchestrator', 'step.heartbeat_lost', 'browser-op-1 · no heartbeat for 15s'], { noRemap: true }),
+    b('ledger.facts>orch.facts', 'lease gone', ['orchestrator', 'step.lease_expired', 'stp_45 → ready · fence 1 → 2'], { rec: true, noRemap: true }),
+    b('ledger.q_browser>b2.lease', 'takeover · token 2', ['ledger', 'step.leased', 'stp_45 → browser-op-2 · token 2'], { rec: true, inc: 'takeovers', st: { b2: ['leased', 'stp_45 · takeover'] } }),
+    b('b2.act>crm.ui', 'check-then-act', ['browser-op-2', 'step.observation', 'no existing contact → create']),
+    b('b2.claim>verifier.claims', 'claim · created', ['browser-op-2', 'step.claimed', 'stp_45'], { st: { b2: ['idle', 'idle'], verifier: ['claimed', 'checking stp_45'] } }),
+    b('verifier.rest>crm.rest', 'GET → exactly 1', ['verifier', 'step.observation', 'crm.no_duplicate ✓']),
+    b('verifier.verdict>ledger.verdicts', 'commit stp_45', ['verifier', 'step.committed', 'crm.contact_exists ✓'], { add: 1, fact: 'lead:6.contact = crm/5f44', st: { verifier: ['idle', 'idle'] } }),
+  ] },
+  session: { label: 'Expire session', desc: 'Invalidate the CRM login', recovery: 'The operator saw the login page, signed in again and resumed the same step.', beats: () => [
+    b(null, null, ['chaos', 'fault.injected', 'CRM session invalidated'], { fault: true }),
+    b('ledger.q_browser>b1.lease', 'stp_46 · Grace', ['ledger', 'step.leased', 'stp_46 create_task → browser-op-1'], { st: { b1: ['leased', 'stp_46 create_task'] } }),
+    b('b1.act>crm.ui', '→ login page', ['browser-op-1', 'step.observation', 'redirected to /login'], { fault: true }),
+    b('b1.act>crm.ui', 're-login', ['browser-op-1', 'session.renewed', 're-authenticated · resuming stp_46'], { rec: true }),
+    b('b1.claim>verifier.claims', 'claim · task created', ['browser-op-1', 'step.claimed', 'stp_46'], { st: { b1: ['idle', 'idle'], verifier: ['claimed', 'checking stp_46'] } }),
+    b('verifier.rest>crm.rest', 'GET task', ['verifier', 'step.observation', 'task linked · due +2 business days']),
+    b('verifier.verdict>ledger.verdicts', 'commit stp_46', ['verifier', 'step.committed', 'crm.task_exists ✓'], { add: 1, st: { verifier: ['idle', 'idle'] } }),
+  ] },
+  outage: { label: 'Model outage', desc: 'Make the primary worker model fail', recovery: 'The primary worker model returned 503. The drafter fell back to gpt-4.1-mini and the step committed.', beats: () => [
+    b(null, null, ['chaos', 'fault.injected', 'primary worker model → 503'], { fault: true }),
+    b('ledger.q_draft>drafter.lease', 'stp_53 draft', ['ledger', 'step.leased', 'stp_53 email.draft → drafter'], { st: { drafter: ['leased', 'stp_53 email.draft'] } }),
+    b(null, null, ['drafter', 'llm.error', 'claude-haiku-4.5 · 503'], { fault: true }),
+    b(null, null, ['drafter', 'model.fallback', '→ gpt-4.1-mini'], { rec: true, inc: 'fallbacks', st: { drafter: ['leased', 'stp_53 · fallback model'] } }),
+    b('drafter.claim>verifier.claims', 'claim · draft', ['drafter', 'step.claimed', 'stp_53'], { st: { drafter: ['idle', 'idle'], verifier: ['claimed', 'email.draft_valid'] } }),
+    b('verifier.verdict>ledger.verdicts', 'commit stp_53', ['verifier', 'step.committed', 'email.draft_valid ✓'], { add: 1, st: { verifier: ['idle', 'idle'] } }),
+  ] },
+};
+
+// Clarification + approval payloads (would come from GET /approvals).
+const CLAR_ALL = [
+  { id: 'r9',  name: 'Sam Ito',   src: 'row 9',  why: 'Company matches two CRM accounts.',                found: 'Lumen Inc · Lumen Health', opts: ['Lumen Inc', 'Lumen Health', 'Skip'] },
+  { id: 'r7',  name: 'Ben Ortiz', src: 'row 7',  why: 'Personal email; name + company match at 0.86.',    found: 'Benjamin Ortiz · Quarry Data', opts: ['Same person', 'New contact', 'Skip'] },
+  { id: 'r11', name: 'Jo Park',   src: 'row 11', why: 'No email. Playbook allows phone-only if you say so.', found: 'no match', opts: ['Create (phone)', 'Skip'] },
+];
+const CLAR = CLAR_ALL.filter(r => r.id === 'r9');   // only the escalated row reaches the human
+const EMAILS = [['priya@northwind.com', 'Priya', 'Northwind'], ['dana@helixbio.com', 'Dana', 'Helix Bio'], ['tom.becker@orbitalfreight.com', 'Tom', 'Orbital Freight'],
+  ['lena@kestrel-labs.io', 'Lena', 'Kestrel Labs'], ['omar@brightline.co', 'Omar', 'Brightline'], ['grace.wu@tallgrass.com', 'Grace', 'Tallgrass'],
+  ['marcus.lee@acme.com', 'Marcus', 'Acme Corp'], ['hannah@fieldstone.dev', 'Hannah', 'Fieldstone']]
+  .map(([to, first, co], i) => ({ id: 'm' + i, to, subject: `Good to meet you at Signal Summit, ${first}`,
+    body: `Hi ${first},\n\nThanks for stopping by yesterday. You mentioned ${co} wants to cut manual CRM work. Happy to show you what we've built.\n\nDoes 20 minutes on Thursday work?\n\nBest,\nAlex` }));
+
+const ACTOR_C = a => a === 'chaos' ? C.red : a === 'human' ? C.human : a === 'verifier' ? C.fact : a === 'ledger' ? C.exec : C.text2;
+const pill = on => ({ bg: on ? 'var(--fg)' : 'transparent', fg: on ? 'var(--bg)' : 'var(--fg2)', border: on ? 'var(--fg)' : 'var(--line2)' });
+const fmtT = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+const LOG_OPEN = 160, LOG_CLOSED = 34, PANEL_W = 400;
+
+// Geometry — must match the template: 1px border + 36px header + 6px padding, 24px rows.
+const pinY = (n, i) => n.y + 1 + 36 + 6 + i * 24 + 12;
+const nodeH = n => 1 + 36 + 12 + Math.max(n.ins.length, n.outs.length, 1) * 24 + 31;
+// Cubic bezier wire. Backward wires get wider handles so they loop cleanly.
+function wirePath(a, z) {
+  const back = z.x < a.x + 40;
+  const dx = back ? Math.max(160, (a.x - z.x) * 0.22) : Math.max(50, (z.x - a.x) * 0.45);
+  return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${z.x - dx} ${z.y}, ${z.x} ${z.y}`;
+}
+
+const initialRun = () => ({
+  script: SCRIPT.slice(), cursor: 0, playing: false, started: false, done: false,
+  packets: [], hot: {}, events: [], status: {}, clock: 0, facts: [], lost: {}, ask: null, faults: [],
+  c: { committed: 0, total: 0, retries: 0, takeovers: 0, fallbacks: 0 },
+  choices: { r9: null }, approved: Object.fromEntries(EMAILS.map(m => [m.id, true])), openEmail: 'm0',
+});
+
+class Component extends DCLogic {
+  state = {
+    goal: "Add the leads from yesterday's event to the CRM and set up follow-ups.",
+    pos: Object.fromEntries(NODES.map(n => [n.id, { x: n.x, y: n.y }])),
+    extra: [],                       // agents added from the toolbar
+    wires: WIRES.slice(),
+    view: { x: 40, y: 80, k: 0.7 },
+    sel: null, selWire: null, panel: null, temp: null,
+    speed: 1, logOpen: true, theme: 'light', det: 80,
+    ...initialRun(),
+  };
+  canvasRef = React.createRef();
+  logRef = React.createRef();
+  drag = null;
+  pid = 0;
+
+  // ----- lifecycle --------------------------------------------------------
+  componentDidMount() {
+    window.addEventListener('mousemove', this.onMove);
+    window.addEventListener('mouseup', this.onUp);
+    window.addEventListener('keydown', this.onKey);
+    this.attachWheel();
+    requestAnimationFrame(() => this.fit());
+    // Theme shared with the Dashboard via localStorage.
+    let saved = null; try { saved = localStorage.getItem('ledger.theme'); } catch (e) {}
+    this.setState({ theme: saved || 'light' });
+  }
+  componentWillUnmount() {
+    window.removeEventListener('mousemove', this.onMove);
+    window.removeEventListener('mouseup', this.onUp);
+    window.removeEventListener('keydown', this.onKey);
+    clearTimeout(this.timer);
+  }
+  componentDidUpdate() {
+    // When embedded in the Dashboard, the host owns the theme.
+    if (!this.props.theme && document.documentElement.dataset.theme !== this.state.theme) document.documentElement.dataset.theme = this.state.theme;
+    // Re-fit when the builder becomes visible (it mounts hidden inside the Dashboard).
+    const active = this.props.active ?? true;
+    if (active && !this._wasActive && !this._fitted) requestAnimationFrame(() => this.fit());
+    this._wasActive = active;
+    this.attachWheel();
+    // keep newest ledger event in view
+    if (this.state.events.length !== this._evLen) {
+      this._evLen = this.state.events.length;
+      const el = this.logRef.current; if (el) el.scrollTop = el.scrollHeight;
+    }
+  }
+  // Native non-passive wheel listener so zoom can preventDefault.
+  attachWheel() {
+    const el = this.canvasRef.current;
+    if (!el || this._wheelEl === el) return;
+    this._wheelEl = el;
+    el.addEventListener('wheel', e => {
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      this.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
+    }, { passive: false });
+  }
+
+  // ----- geometry helpers -------------------------------------------------
+  allNodes() {
+    return NODES.concat(this.state.extra).map(n => ({ ...n, ...this.state.pos[n.id] }));
+  }
+  pinPos(ref, nodes = this.allNodes()) {
+    const [nid, pid] = ref.split('.');
+    const n = nodes.find(x => x.id === nid); if (!n) return null;
+    let i = n.outs.findIndex(p => p.id === pid);
+    if (i >= 0) return { x: n.x + n.w, y: pinY(n, i), t: n.outs[i].t };
+    i = n.ins.findIndex(p => p.id === pid);
+    return i >= 0 ? { x: n.x, y: pinY(n, i), t: n.ins[i].t } : null;
+  }
+  toWorld(e) {
+    const r = this.canvasRef.current.getBoundingClientRect(), v = this.state.view;
+    return { x: (e.clientX - r.left - v.x) / v.k, y: (e.clientY - r.top - v.y) / v.k };
+  }
+  zoomAt(mx, my, f) {
+    this.setState(({ view: v }) => {
+      const k = Math.min(1.8, Math.max(0.25, v.k * f));
+      return { view: { k, x: mx - (mx - v.x) * (k / v.k), y: my - (my - v.y) * (k / v.k) } };
+    });
+  }
+  // Fit the whole graph into the visible canvas (minus toolbar, log, panel).
+  fit = () => {
+    const el = this.canvasRef.current; if (!el) return;
+    const r = el.getBoundingClientRect(), ns = this.allNodes();
+    if (!r.width || !r.height) return;   // hidden — fit later
+    this._fitted = true;
+    const minX = Math.min(...ns.map(n => n.x)), maxX = Math.max(...ns.map(n => n.x + n.w));
+    const minY = Math.min(...ns.map(n => n.y)), maxY = Math.max(...ns.map(n => n.y + nodeH(n)));
+    const top = 60, W = r.width - (this.state.panel ? PANEL_W : 0) - 60, H = r.height - (this.state.logOpen ? LOG_OPEN : LOG_CLOSED) - top - 30;
+    const k = Math.min(1, Math.max(0.25, Math.min(W / (maxX - minX), H / (maxY - minY))));
+    this.setState({ view: { k, x: 30 + (W - (maxX - minX) * k) / 2 - minX * k, y: top + (H - (maxY - minY) * k) / 2 - minY * k } });
+  };
+
+  // ----- pointer interactions ---------------------------------------------
+  canvasDown = e => {
+    if (e.button !== 0) return;
+    this.drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, ox: this.state.view.x, oy: this.state.view.y };
+    this.setState({ selWire: null });
+  };
+  nodeDown = (id, e) => {
+    e.stopPropagation();
+    const p = this.state.pos[id];
+    this.drag = { mode: 'node', id, sx: e.clientX, sy: e.clientY, ox: p.x, oy: p.y };
+    this.setState({ sel: id, selWire: null, panel: 'inspect' });
+  };
+  // Start a new wire from an output pin.
+  pinDown = (ref, t, e) => {
+    e.stopPropagation(); e.preventDefault();
+    const a = this.pinPos(ref);
+    this.drag = { mode: 'wire', from: ref, t, a };
+    this.setState({ temp: { a, z: a, c: C[t] } });
+  };
+  // Finish a wire on a compatible input pin.
+  pinUp = (ref, t) => {
+    const d = this.drag;
+    if (!d || d.mode !== 'wire' || d.t !== t || d.from.split('.')[0] === ref.split('.')[0]) return;
+    const id = `${d.from}>${ref}`;
+    this.setState(s => s.wires.includes(id) ? null : { wires: [...s.wires, id] });
+  };
+  onMove = e => {
+    const d = this.drag; if (!d) return;
+    if (d.mode === 'pan') this.setState(s => ({ view: { ...s.view, x: d.ox + e.clientX - d.sx, y: d.oy + e.clientY - d.sy } }));
+    else if (d.mode === 'node') {
+      const k = this.state.view.k;
+      this.setState(s => ({ pos: { ...s.pos, [d.id]: { x: d.ox + (e.clientX - d.sx) / k, y: d.oy + (e.clientY - d.sy) / k } } }));
+    } else if (d.mode === 'wire') this.setState(s => ({ temp: { ...s.temp, z: this.toWorld(e) } }));
+  };
+  onUp = () => { if (this.drag && this.drag.mode === 'wire') this.setState({ temp: null }); this.drag = null; };
+  onKey = e => {
+    if (this.props.active === false) return;   // builder hidden behind the dashboard
+    if (/INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName)) return;
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.state.selWire) {
+      this.setState(s => ({ wires: s.wires.filter(w => w !== s.selWire), selWire: null }));
+    } else if (e.key === 'Escape') this.setState({ panel: null, sel: null, selWire: null });
+    else if (e.key === ' ') { e.preventDefault(); this.toggleRun(); }
+  };
+
+  // ----- graph editing ----------------------------------------------------
+  addAgent = kind => {
+    const tpl = TEMPLATES[kind], n = ++this.pid, id = `${kind}${n + 2}`;
+    const el = this.canvasRef.current, v = this.state.view;
+    const r = el ? el.getBoundingClientRect() : { width: 800, height: 600 };
+    const x = (r.width / 2 - v.x) / v.k - 115 + n * 20, y = (r.height / 3 - v.y) / v.k + n * 20;
+    this.setState(s => ({
+      extra: [...s.extra, { ...tpl, id, title: kind === 'browser' ? `${tpl.title} ${n + 2}` : tpl.title, w: 230 }],
+      pos: { ...s.pos, [id]: { x, y } }, sel: id, panel: 'inspect',
+    }));
+  };
+  removeSelected = () => this.setState(s => ({
+    extra: s.extra.filter(n => n.id !== s.sel),
+    wires: s.wires.filter(w => !w.split('>').some(p => p.split('.')[0] === s.sel)),
+    sel: null, panel: null,
+  }));
+
+  // ----- playback (stand-in for the SSE stream) ---------------------------
+  toggleRun = () => {
+    const s = this.state;
+    if (s.done) { this.reset(); setTimeout(() => this.play(), 50); return; }
+    s.playing ? this.pause() : this.play();
+  };
+  play = () => { if (this.state.ask) { this.setState({ panel: 'input' }); return; } this.setState({ playing: true, started: true }, this.tick); };
+  pause = () => { clearTimeout(this.timer); this.setState({ playing: false }); };
+  stepOnce = () => { this.pause(); if (!this.state.ask && !this.state.done) this.advance(); };
+  reset = () => { clearTimeout(this.timer); this.setState({ ...initialRun(), panel: null }); };
+  tick = () => {
+    clearTimeout(this.timer);
+    if (!this.state.playing) return;
+    this.advance();
+    this.timer = setTimeout(this.tick, 1250 / this.state.speed);
+  };
+  advance() {
+    const s = this.state;
+    if (s.cursor >= s.script.length) { this.setState({ playing: false }); return; }
+    this.applyBeat(s.script[s.cursor]);
+  }
+  // Insert beats right after the cursor (faults, human answers).
+  splice(beats, extra = {}) {
+    this.setState(s => ({ script: [...s.script.slice(0, s.cursor), ...beats, ...s.script.slice(s.cursor)], ...extra }));
+  }
+
+  // Apply one ledger message: spawn packet, append event, update nodes/counters.
+  applyBeat(raw) {
+    const auto = this.props.autoOpenInput ?? true;
+    this.setState(s => {
+      // If browser-op-1 is dead, its work is routed to browser-op-2.
+      let beat = raw;
+      if (s.lost.b1 && !raw.noRemap) {
+        const sw = x => x && x.replace(/\bb1\./g, 'b2.').replace(/browser-op-1/g, 'browser-op-2');
+        beat = { ...raw, w: sw(raw.w), ev: raw.ev.map(sw), st: raw.st && Object.fromEntries(Object.entries(raw.st).map(([k, v]) => [k === 'b1' ? 'b2' : k, v])) };
+      }
+      const clock = s.clock + 0.8 + Math.random() * 1.4;
+      const out = { cursor: s.cursor + 1, clock };
+      let ev = { t: fmtT(clock), actor: beat.ev[0], type: beat.ev[1], payload: beat.ev[2], fault: beat.fault, rec: beat.rec };
+
+      if (beat.w) {
+        if (s.wires.includes(beat.w)) {
+          const [fa, fz] = beat.w.split('>'), nodes = this.allNodes();
+          const a = this.pinPos(fa, nodes), z = this.pinPos(fz, nodes);
+          const id = ++this.pid, dur = Math.round(950 / s.speed);
+          out.packets = [...s.packets, { id, d: wirePath(a, z), c: C[a.t], label: beat.l, dur }];
+          out.hot = { ...s.hot, [beat.w]: id };
+          setTimeout(() => this.setState(p => {
+            const hot = { ...p.hot }; if (hot[beat.w] === id) delete hot[beat.w];
+            return { packets: p.packets.filter(x => x.id !== id), hot };
+          }), dur + 120);
+        } else {
+          // User removed this wire: the message has no route.
+          ev = { ...ev, type: 'route.missing', payload: `no wire ${beat.w} · ${beat.ev[1]} not delivered`, fault: true };
+        }
+      }
+      out.events = [...s.events, ev];
+      if (beat.st) out.status = { ...s.status, ...beat.st };
+      if (beat.fact) out.facts = [...s.facts, beat.fact];
+      if (beat.kill) out.lost = { ...s.lost, [beat.kill]: true };
+      const c = { ...s.c };
+      if (beat.total) c.total = beat.total;
+      if (beat.add) c.committed = Math.min(c.total, c.committed + beat.add);
+      if (beat.inc) c[beat.inc] += 1;
+      if (beat.end) { c.committed = c.total; out.done = true; out.playing = false; out.panel = 'evidence'; clearTimeout(this.timer); }
+      out.c = c;
+      if (beat.ask) { out.ask = beat.ask; out.playing = false; clearTimeout(this.timer); if (auto) { out.panel = 'input'; out.sel = 'human'; } }
+      return out;
+    });
+  }
+
+  injectFault = key => {
+    const s = this.state;
+    if (s.done || (key === 'kill' && s.lost.b1)) return;
+    this.splice(FAULTS[key].beats(), { faults: [...s.faults, key] });
+    if (!s.playing && !s.ask) setTimeout(() => this.play(), 30);
+  };
+
+  // Human answers become a message on the bus, then the run resumes.
+  answer(label, payload, fact) {
+    const beat = b('human.answer>ledger.answers', label, ['human', 'input.answered', payload], { fact, st: { human: ['idle', 'idle'], meta: ['idle', 'idle'] } });
+    this.splice([beat], { ask: null, panel: null });
+    setTimeout(() => this.play(), 30);
+  }
+  submitClar = () => {
+    const ch = this.state.choices;
+    if (!ch.r9) return;
+    this.answer('1 decision', CLAR.map(r => `${r.name}: ${ch[r.id] || 'skip'}`).join(' · '), `decisions = ${CLAR.map(r => ch[r.id] || 'skip').join(', ')}`);
+  };
+  submitApprove = () => {
+    const n = Object.values(this.state.approved).filter(Boolean).length;
+    this.answer(`approve ${n}`, `${n} approved · ${8 - n} held`, `approvals = ${n} of 8`);
+  };
+  rejectAll = () => this.answer('reject all', 'all 8 rejected · drafter will revise', 'approvals = 0 of 8');
+
+  // ----- render values ----------------------------------------------------
+  renderVals() {
+    const s = this.state;
+    const showLabels = this.props.showPacketLabels ?? true;
+    const nodes = this.allNodes();
+    const connected = new Set(s.wires.flatMap(w => w.split('>')));
+
+    // Nodes → template rows with pins.
+    const nodeVals = nodes.map(n => {
+      const role = ROLE[n.role];
+      const [stKey, stText] = s.status[n.id] || n.status || ['idle', s.lost[n.id] ? 'lost' : 'idle'];
+      const rows = Array.from({ length: Math.max(n.ins.length, n.outs.length, 1) }, (_, i) => {
+        const l = n.ins[i], r = n.outs[i];
+        return {
+          ll: l ? l.label : '', rl: r ? r.label : '',
+          l: l ? { c: C[l.t], fill: connected.has(`${n.id}.${l.id}`) ? C[l.t] : 'var(--panel)', up: () => this.pinUp(`${n.id}.${l.id}`, l.t) } : null,
+          r: r ? { c: C[r.t], fill: connected.has(`${n.id}.${r.id}`) ? C[r.t] : 'var(--panel)', down: e => this.pinDown(`${n.id}.${r.id}`, r.t, e) } : null,
+        };
+      });
+      const sel = s.sel === n.id;
+      const asking = n.role === 'human' && s.ask;
+      return {
+        x: n.x, y: n.y, w: n.w, title: n.title, roleLabel: role.label, rc: role.c, rows,
+        st: stText, sc: STATUS_C[stKey] || C.idle,
+        border: sel ? 'var(--fg)' : asking ? C.human : n.role === 'ledger' ? 'var(--fg3)' : 'var(--line2)',
+        op: s.lost[n.id] ? 0.45 : 1,
+        hasInfo: n.id === 'ledger',
+        info: n.id === 'ledger' ? [`${s.events.length} events · ${s.facts.length} facts committed`, 'leases · fencing tokens · consumer groups'] : [],
+        down: e => this.nodeDown(n.id, e),
+      };
+    });
+
+    // Wires → paths. Hot wires (carrying a packet) glow.
+    const wireList = s.wires.map(w => {
+      const [fa, fz] = w.split('>');
+      const a = this.pinPos(fa, nodes), z = this.pinPos(fz, nodes);
+      if (!a || !z) return null;
+      const dead = w.split('>').some(p => s.lost[p.split('.')[0]]);
+      const hot = !!s.hot[w], sel = s.selWire === w;
+      return {
+        d: wirePath(a, z), c: sel ? 'var(--fg)' : dead ? C.dead : C[a.t],
+        sw: hot || sel ? 3 : 1.6, op: hot || sel ? 1 : dead ? 0.5 : 0.38, dash: dead ? '5 5' : 'none',
+        select: e => { e.stopPropagation(); this.setState({ selWire: w }); },
+      };
+    }).filter(Boolean);
+
+    const temp = s.temp ? { d: wirePath(s.temp.a, s.temp.z), c: s.temp.c } : null;
+
+    // Packets: animated via CSS offset-path; built as elements so the
+    // animation isn't restarted by re-renders (stable keys).
+    const packetsEl = React.createElement(React.Fragment, null, s.packets.map(p =>
+      React.createElement('div', { key: p.id, style: {
+        position: 'absolute', left: 0, top: 0, zIndex: 5, pointerEvents: 'none',
+        offsetPath: `path('${p.d}')`, offsetRotate: '0deg', offsetAnchor: '7px 50%',
+        animation: `ldg-travel ${p.dur}ms cubic-bezier(.45,0,.55,1) forwards`,
+        display: 'flex', alignItems: 'center', gap: 6 } },
+        React.createElement('span', { style: { width: 14, height: 14, borderRadius: '50%', background: p.c, boxShadow: `0 0 0 5px color-mix(in oklch, ${p.c} 25%, transparent)` } }),
+        showLabels && p.label ? React.createElement('span', { style: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'var(--bg)', border: `1px solid ${p.c}`, color: p.c, whiteSpace: 'nowrap' } }, p.label) : null)));
+
+    // Inspector for the selected node.
+    const selNode = nodes.find(n => n.id === s.sel);
+    let insp = { list: [] };
+    if (selNode) {
+      const key = selNode.info || (/^b\d/.test(selNode.id) ? 'b' : selNode.id);
+      const card = CARD[key] || CARD.b;
+      const [stKey, stText] = s.status[selNode.id] || selNode.status || ['idle', s.lost[selNode.id] ? 'lost · heartbeat stale' : 'idle · alive'];
+      let list = [], listTitle = '';
+      if (card.list === 'criteria') { listTitle = 'Success criteria'; list = LISTS.criteria.map((t, i) => ({ text: t, icon: s.done ? '✓' : i < 2 && s.c.committed > 3 ? '✓' : '○', c: s.done || (i < 2 && s.c.committed > 3) ? C.fact : C.idle })); }
+      else if (card.list === 'facts') { listTitle = 'Committed facts'; list = s.facts.length ? s.facts.map(f => ({ text: f, icon: '■', c: C.fact })) : [{ text: 'No facts yet. Facts appear only after the verifier commits.', icon: '·', c: C.idle }]; }
+      else if (card.list === 'checks') { listTitle = 'Postcondition registry'; list = LISTS.checks.map(t => ({ text: t, icon: '→', c: C.fact })); }
+      else if (card.list) { listTitle = card.list === 'goal' ? 'Request' : 'Sections'; list = LISTS[card.list].map(t => ({ text: t, icon: '·', c: C.text2 })); }
+      const wiredIn = selNode.ins.some(p => connected.has(`${selNode.id}.${p.id}`));
+      insp = {
+        id: selNode.id, title: selNode.title, roleLabel: ROLE[selNode.role].label, rc: ROLE[selNode.role].c,
+        desc: card.desc, skills: card.skills, model: card.model, fallback: card.fallback, reads: card.reads, writes: card.writes,
+        st: stText, sc: STATUS_C[stKey] || C.idle,
+        hasList: list.length > 0, listTitle, list,
+        unwired: selNode.ins.length > 0 && !wiredIn,
+        removable: s.extra.some(n => n.id === selNode.id),
+      };
+    }
+
+    const logH = s.logOpen ? LOG_OPEN : LOG_CLOSED;
+    const panelOpen = !!s.panel;
+    const nApproved = Object.values(s.approved).filter(Boolean).length;
+
+    return {
+      // top bar
+      themeLabel: (this.props.theme ?? s.theme) === 'light' ? 'Dark' : 'Light',
+      det: s.det, detLabel: (s.det / 100).toFixed(2),
+      detTitle: `workers T=${(1 - s.det / 100).toFixed(2)} · orchestrator T=${(0.8 * (1 - s.det / 100)).toFixed(2)} · verifier T=0`,
+      setDet: e => {
+        const v = +e.target.value; this.setState({ det: v });
+        clearTimeout(this._detT);
+        this._detT = setTimeout(() => this.setState(p => ({ events: [...p.events, { t: fmtT(p.clock), actor: 'orchestrator', type: 'config.updated', payload: `determinism ${(v / 100).toFixed(2)} · workers T=${(1 - v / 100).toFixed(2)} · verifier T=0` }] })), 500);
+      },
+      goReport: e => { if (this.props.onNavigate) { e.preventDefault(); this.props.onNavigate('report'); } },
+      goDashboard: e => { if (this.props.onNavigate) { e.preventDefault(); this.props.onNavigate('dashboard'); } },
+      toggleTheme: () => { if (this.props.onToggleTheme) { this.props.onToggleTheme(); return; } const theme = s.theme === 'light' ? 'dark' : 'light'; try { localStorage.setItem('ledger.theme', theme); } catch (e) {} this.setState({ theme }); },
+      goal: s.goal, setGoal: e => this.setState({ goal: e.target.value }),
+      runLabel: s.done ? 'Run again' : s.playing ? 'Pause' : s.started ? 'Resume' : 'Run',
+      toggleRun: this.toggleRun, stepOnce: this.stepOnce, reset: this.reset,
+      speeds: [0.5, 1, 2].map(v => ({ label: v + '×', ...pill(s.speed === v), pick: () => this.setState({ speed: v }) })),
+      cCommitted: String(s.c.committed), cTotal: String(s.c.total), cRetries: String(s.c.retries), cTakeovers: String(s.c.takeovers), cFallbacks: String(s.c.fallbacks),
+      ask: !!s.ask, openInput: () => this.setState({ panel: 'input', sel: 'human' }),
+
+      // canvas
+      canvasRef: this.canvasRef, canvasDown: this.canvasDown,
+      canvasCursor: this.drag && this.drag.mode === 'pan' ? 'grabbing' : 'default',
+      vx: s.view.x, vy: s.view.y, vk: s.view.k, grid: Math.max(8, 24 * s.view.k),
+      wireList, temp, nodes: nodeVals, packetsEl,
+
+      // toolbar + zoom
+      palette: [['browser', 'Browser operator'], ['drafter', 'Drafter'], ['human', 'Human reviewer']].map(([k, label]) => ({ label, add: () => this.addAgent(k) })),
+      faultBtns: Object.entries(FAULTS).map(([k, f]) => ({ label: f.label, desc: f.desc, fg: s.done || (k === 'kill' && s.lost.b1) ? 'var(--fg3)' : 'var(--s-rejected)', fire: () => this.injectFault(k) })),
+      zoomIn: () => { const r = this.canvasRef.current.getBoundingClientRect(); this.zoomAt(r.width / 2, r.height / 2, 1.2); },
+      zoomOut: () => { const r = this.canvasRef.current.getBoundingClientRect(); this.zoomAt(r.width / 2, r.height / 2, 1 / 1.2); },
+      fit: this.fit, zoomPct: Math.round(s.view.k * 100) + '%',
+      overlayRight: (panelOpen ? PANEL_W : 0) + 14, overlayBottom: logH + 12,
+
+      // ledger stream
+      logRef: this.logRef, logH, panelW: panelOpen ? PANEL_W : 0,
+      toggleLog: () => this.setState(p => ({ logOpen: !p.logOpen })), logToggleLabel: s.logOpen ? 'collapse' : 'expand',
+      eventCount: String(s.events.length), noEvents: s.events.length === 0,
+      events: s.events.map(e => ({ ...e, ac: ACTOR_C(e.actor), tag: e.fault ? 'FAULT' : e.rec ? 'RECOVERY' : '', tagC: e.fault ? C.red : C.fact,
+        bg: e.fault ? 'color-mix(in oklch, var(--s-rejected) 9%, transparent)' : 'transparent' })),
+
+      // panel
+      panelOpen, stop: e => e.stopPropagation(), closePanel: () => this.setState({ panel: null, sel: null }),
+      isInspect: s.panel === 'inspect' && !!selNode, isInput: s.panel === 'input', isEvidence: s.panel === 'evidence',
+      insp, removeSelected: this.removeSelected,
+      noAsk: !s.ask, isClar: s.ask === 'clar', isApprove: s.ask === 'approve',
+      askTitle: s.ask === 'clar' ? 'Sam Ito: which Lumen account?' : s.ask === 'approve' ? '8 follow-up emails ready to send' : 'Inbox',
+      clarRows: CLAR.map(r => ({ ...r, opts: r.opts.map(o => ({ label: o, ...pill(s.choices[r.id] === o), pick: () => this.setState(p => ({ choices: { ...p.choices, [r.id]: o } })) })) })),
+      clarCount: String(Object.values(s.choices).filter(Boolean).length) + ' of 1', submitClar: this.submitClar,
+      emails: EMAILS.map(m => {
+        const on = !!s.approved[m.id], open = s.openEmail === m.id;
+        return { ...m, open, caret: open ? '▾' : '▸', check: on ? '✓' : '', boxBg: on ? C.human : 'transparent', boxBorder: on ? C.human : 'var(--line2)',
+          toggle: () => this.setState(p => ({ openEmail: p.openEmail === m.id ? null : m.id })),
+          toggleSel: e => { e.stopPropagation(); this.setState(p => ({ approved: { ...p.approved, [m.id]: !p.approved[m.id] } })); } };
+      }),
+      selCount: String(nApproved), submitApprove: this.submitApprove, rejectAll: this.rejectAll,
+
+      // evidence
+      outcome: [[6, 'created', C.fact], [3, 'updated', C.task], [2, 'skipped', C.text2], [8, 'emails auto-approved', C.human]].map(([n, label, c]) => ({ n: String(n), label, c })),
+      noFaults: s.faults.length === 0,
+      recoveries: s.faults.map(k => ({ fault: FAULTS[k].label, recovery: FAULTS[k].recovery })),
+      facts: s.facts,
+    };
+  }
+}
+</script>
+</body>
+</html>

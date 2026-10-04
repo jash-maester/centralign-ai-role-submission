@@ -1,0 +1,1758 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Theme tokens (shared with Ledger Canvas). Light is default; html[data-theme="dark"] switches. */
+  html { --bg: #F4F4F2; --bg2: #EDEDEA; --panel: #FFFFFF; --panel2: #F7F7F5; --line: #E4E4E0; --line2: #D3D3CE; --dot: #D9D9D4;
+    --fg: #16171A; --fg2: #54575D; --fg3: #8A8D93; --accent: oklch(0.52 0.12 240); --shadow: 0 1px 2px rgba(20,20,20,0.04), 0 6px 20px rgba(20,20,20,0.05);
+    --s-planned: #8A8D93; --s-ready: #6F7F96; --s-leased: oklch(0.56 0.15 250); --s-claimed: oklch(0.62 0.15 70); --s-committed: oklch(0.55 0.14 155);
+    --s-rejected: oklch(0.56 0.19 25); --s-input: oklch(0.54 0.17 300); --s-dead: oklch(0.45 0.14 25); color-scheme: light; }
+  html[data-theme="dark"] { --bg: #0C0D0F; --bg2: #101114; --panel: #141518; --panel2: #1A1B20; --line: #24262B; --line2: #2E3036; --dot: #25272D;
+    --fg: #E7E8EA; --fg2: #A3A7AE; --fg3: #6E737C; --accent: oklch(0.80 0.09 230); --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    --s-planned: #6E737C; --s-ready: #8593A8; --s-leased: oklch(0.72 0.13 250); --s-claimed: oklch(0.80 0.14 80); --s-committed: oklch(0.76 0.14 155);
+    --s-rejected: oklch(0.68 0.18 25); --s-input: oklch(0.72 0.13 300); --s-dead: oklch(0.55 0.15 25); color-scheme: dark; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--fg); }
+  button, input, textarea { font-family: inherit; }
+  @media print { [data-noprint] { display: none !important; } html, body { background: #FFFFFF; } }
+</style>
+</helmet>
+
+<!-- Dashboard and Builder are both mounted; switching only toggles display, so it's instant and the builder keeps its state. -->
+<div style="height: 100vh; display: {{ dashDisplay }}; flex-direction: column;">
+
+  <!-- ===================== TOP BAR ===================== -->
+  <header data-noprint="1" style="height: 56px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5;">
+    <div style="display: flex; align-items: center; gap: 9px;">
+      <div style="width: 12px; height: 12px; border: 2px solid var(--fg); transform: rotate(45deg);"></div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; letter-spacing: 0.04em;">ledger</span>
+    </div>
+    <div style="display: flex; padding: 3px; border-radius: 8px; background: var(--bg2); gap: 2px;">
+      <sc-for list="{{ navTabs }}" as="nv" hint-placeholder-count="3">
+        <button onClick="{{ nv.go }}" style="padding: 5px 12px; border: 0; border-radius: 6px; background: {{ nv.bg }}; box-shadow: {{ nv.shadow }}; color: {{ nv.fg }}; font-size: 12.5px; font-weight: 500; cursor: pointer;">{{ nv.label }}</button>
+      </sc-for>
+    </div>
+    <div style="flex: 1;"></div>
+    <sc-if value="{{ hasNeeds }}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{ scrollTop }}" style="height: 32px; padding: 0 12px; border: 1px solid var(--s-input); border-radius: 6px; background: color-mix(in oklch, var(--s-input) 10%, transparent); color: var(--s-input); font-size: 12.5px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 7px; white-space: nowrap;"><span style="width: 7px; height: 7px; border-radius: 50%; background: var(--s-input);"></span>Needs you · {{ needsCount }}</button>
+    </sc-if>
+    <button onClick="{{ toggleTheme }}" style="height: 32px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--fg2); font-size: 12.5px; cursor: pointer;">{{ themeLabel }}</button>
+  </header>
+
+  <div ref="{{ scrollRef }}" style="flex: 1; min-height: 0; overflow: auto;">
+  <sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
+  <main style="width: 100%; max-width: 1360px; margin: 0 auto; padding: 24px 28px 48px; display: flex; flex-direction: column; gap: 20px;">
+
+    <!-- ===================== NEEDS YOUR ATTENTION =====================
+         Derived from the meta-reviewer's decisions and the thresholds in Run controls:
+         a decision escalates only when confidence < threshold or a policy forces a human. -->
+    <section style="display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;">
+        <span style="font-size: 16px; font-weight: 600;">Needs your attention</span>
+        <span style="font-size: 12.5px; color: var(--fg3);">{{ actionCountLabel }}</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; align-items: start;">
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          <sc-for list="{{ escalations }}" as="es" hint-placeholder-count="1">
+            <div style="background: var(--panel); border: 1px solid color-mix(in oklch, var(--s-input) 35%, var(--line)); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden;">
+              <div style="padding: 16px 18px 12px; display: flex; flex-direction: column; gap: 5px;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--s-input); letter-spacing: 0.06em;">{{ es.kicker }}</span>
+                <span style="font-size: 15px; font-weight: 600;">{{ es.title }}</span>
+                <span style="font-size: 12.5px; color: var(--fg2); text-wrap: pretty;">{{ es.desc }}</span>
+              </div>
+              <div style="margin: 0 18px 12px; padding: 10px 12px; border-radius: 8px; background: var(--panel2); display: flex; flex-direction: column; gap: 5px;">
+                <span style="font-size: 11.5px; font-weight: 500; color: var(--fg2);">What the meta-reviewer tried</span>
+                <sc-for list="{{ es.tried }}" as="tr" hint-placeholder-count="3">
+                  <span style="display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 6px; font-size: 12px; color: var(--fg2); line-height: 1.45;"><span style="color: var(--fg3);">·</span><span>{{ tr }}</span></span>
+                </sc-for>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--s-rejected);">{{ es.confLine }}</span>
+              </div>
+              <div style="padding: 0 18px 14px; display: flex; flex-direction: column; gap: 6px;">
+                <sc-for list="{{ es.opts }}" as="o" hint-placeholder-count="3">
+                  <button onClick="{{ o.pick }}" style="display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 12px; border: 1px solid {{ o.border }}; border-radius: 8px; background: {{ o.bg }}; color: var(--fg); text-align: left; cursor: pointer;">
+                    <span style="width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid {{ o.ring }}; display: grid; place-items: center;"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{ o.dot }};"></span></span>
+                    <span style="font-size: 13px; font-weight: 500;">{{ o.label }}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ o.meta }}</span>
+                  </button>
+                </sc-for>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--panel2); flex-wrap: wrap;">
+                <button onClick="{{ es.commit }}" style="height: 32px; padding: 0 14px; border: 0; border-radius: 6px; background: {{ es.commitBg }}; color: #FFFFFF; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;">Commit decision</button>
+                <label onClick="{{ toggleRule }}" style="display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg2); cursor: pointer;">
+                  <span style="width: 14px; height: 14px; border-radius: 3px; border: 1px solid {{ ruleBorder }}; background: {{ ruleBg }}; display: grid; place-items: center; color: #FFFFFF; font-size: 10px;">{{ ruleCheck }}</span>
+                  Save as playbook rule
+                </label>
+              </div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ allClear }}" hint-placeholder-val="{{ false }}">
+            <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow);">
+              <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600;"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--s-committed);"></span>All clear</span>
+              <span style="font-size: 12.5px; color: var(--fg2);">Every decision cleared its threshold or was answered. The run finishes on its own.</span>
+            </div>
+          </sc-if>
+        </div>
+
+        <!-- handled automatically (audit trail) -->
+        <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden;">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 10px;">
+            <span style="font-size: 13.5px; font-weight: 600;">Handled automatically <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg3); font-weight: 400;">{{ autoCount }}</span></span>
+            <button onClick="{{ openMeta }}" style="border: 0; background: transparent; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer;">Meta-reviewer settings</button>
+          </div>
+          <sc-for list="{{ autoItems }}" as="ai" hint-placeholder-count="5">
+            <div style="display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 10px 18px; border-top: 1px solid var(--line);">
+              <span style="width: 7px; height: 7px; border-radius: 2px; margin-top: 5px; background: {{ ai.c }};"></span>
+              <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                <span style="font-size: 12.5px; font-weight: 500;">{{ ai.title }}</span>
+                <span style="font-size: 11.5px; color: var(--fg3); text-wrap: pretty;">{{ ai.why }}</span>
+              </div>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); white-space: nowrap; padding-top: 2px;">{{ ai.by }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== RUN STRIP (compact) ===================== -->
+    <section style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 18px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; box-shadow: var(--shadow);">
+      <span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 10px; font-size: 11.5px; font-weight: 500; color: var(--s-leased); background: color-mix(in oklch, var(--s-leased) 12%, transparent);"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--s-leased);"></span>running</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg3);">run_7f3a · {{ elapsed }}</span>
+      <span style="flex: 1; min-width: 200px; font-size: 13px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Add the leads from yesterday's event to the CRM and set up follow-ups.</span>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="display: flex; width: 160px; height: 6px; border-radius: 3px; overflow: hidden; gap: 1px; background: var(--bg2);">
+          <sc-for list="{{ progress }}" as="p" hint-placeholder-count="5">
+            <div title="{{ p.label }}" style="flex: {{ p.n }} 1 0; background: {{ p.c }};"></div>
+          </sc-for>
+        </div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">31<span style="color: var(--fg3);">/46</span></span>
+      </div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{ stripC }}; white-space: nowrap;">{{ stripMeta }}</span>
+      <button onClick="{{ goReport }}" style="border: 0; background: transparent; padding: 0; color: var(--accent); font-size: 12.5px; cursor: pointer; white-space: nowrap;">Evidence report →</button>
+    </section>
+
+    <!-- ===================== WORKFLOW: flow strip + filterable tables ===================== -->
+    <section style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden;">
+      <!-- header: title + tabs with counts -->
+      <div style="display: flex; align-items: center; gap: 18px; padding: 0 18px; border-bottom: 1px solid var(--line);">
+        <span style="font-size: 14px; font-weight: 600; padding: 14px 0;">Workflow</span>
+        <div style="display: flex; gap: 4px; align-self: stretch;">
+          <sc-for list="{{ wfTabs }}" as="wt" hint-placeholder-count="2">
+            <button onClick="{{ wt.pick }}" style="display: flex; align-items: center; gap: 7px; padding: 0 10px; border: 0; border-bottom: 2px solid {{ wt.bar }}; background: transparent; color: {{ wt.fg }}; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;">{{ wt.label }}<span style="padding: 1px 6px; border-radius: 10px; background: var(--bg2); font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg2);">{{ wt.n }}</span></button>
+          </sc-for>
+        </div>
+        <div style="flex: 1;"></div>
+        <a href="Ledger%20Canvas.dc.html" onClick="{{ goBuilder }}" style="font-size: 12.5px; white-space: nowrap;">Edit wiring in builder →</a>
+      </div>
+
+      <!-- flow strip: the abstracted pipeline, one line, clickable -->
+      <div style="display: flex; align-items: center; gap: 6px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel2); flex-wrap: wrap; row-gap: 8px;">
+        <sc-for list="{{ flow }}" as="fl" hint-placeholder-count="5">
+          <div style="display: flex; align-items: center; gap: 6px; flex: none;">
+            <button onClick="{{ fl.open }}" style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--fg); font-size: 12.5px; cursor: pointer; white-space: nowrap;" style-hover="border-color: var(--line2);">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ fl.c }};"></span>
+              <span style="font-weight: 500;">{{ fl.name }}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ fl.meta }}</span>
+            </button>
+            <span style="color: var(--fg3); font-size: 12px;">{{ fl.arrow }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- toolbar: search + filters -->
+      <div style="display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap;">
+        <input value="{{ q }}" onChange="{{ setQ }}" placeholder="{{ qPlaceholder }}" style="width: 240px; height: 30px; padding: 0 10px; border: 1px solid var(--line2); border-radius: 6px; background: var(--panel); color: var(--fg); font-size: 12.5px; outline: none;">
+        <div style="display: flex; gap: 4px;">
+          <sc-for list="{{ filters }}" as="ft" hint-placeholder-count="4">
+            <button onClick="{{ ft.pick }}" style="height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid {{ ft.border }}; background: {{ ft.bg }}; color: {{ ft.fg }}; font-size: 12px; cursor: pointer; white-space: nowrap;">{{ ft.label }} <span style="opacity: 0.7; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;">{{ ft.n }}</span></button>
+          </sc-for>
+        </div>
+        <div style="flex: 1;"></div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ shownLabel }}</span>
+      </div>
+
+      <!-- AGENTS TABLE -->
+      <sc-if value="{{ isAgentsTab }}" hint-placeholder-val="{{ true }}">
+        <div style="overflow-x: auto;">
+          <div style="min-width: 980px;">
+            <div style="display: grid; grid-template-columns: minmax(180px, 1.4fr) 90px 150px minmax(160px, 1.3fr) 150px 90px 60px 64px 170px; gap: 14px; padding: 9px 18px; background: var(--panel2); border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 500; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.04em;">
+              <span>Agent</span><span>Role</span><span>Status</span><span>Current step</span><span>Model</span><span>Heartbeat</span><span style="text-align: right;">Done</span><span style="text-align: right;">Reject</span><span></span>
+            </div>
+            <sc-for list="{{ agentRows }}" as="ar" hint-placeholder-count="8">
+              <div onClick="{{ ar.open }}" style="display: grid; grid-template-columns: minmax(180px, 1.4fr) 90px 150px minmax(160px, 1.3fr) 150px 90px 60px 64px 170px; gap: 14px; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--line); cursor: pointer; opacity: {{ ar.op }};" style-hover="background: var(--panel2);">
+                <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                  <span style="flex: none; width: 28px; height: 28px; border-radius: 6px; background: var(--bg2); display: grid; place-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; color: var(--fg2);">{{ ar.initials }}</span>
+                  <div style="display: flex; flex-direction: column; min-width: 0;">
+                    <span style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ ar.name }}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3);">{{ ar.aid }}</span>
+                  </div>
+                </div>
+                <span style="font-size: 12px; color: var(--fg2);">{{ ar.role }}</span>
+                <span><span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 10px; font-size: 11.5px; font-weight: 500; color: {{ ar.c }}; background: color-mix(in oklch, {{ ar.c }} 12%, transparent); white-space: nowrap;"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{ ar.c }};"></span>{{ ar.state }}</span></span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ ar.step }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ ar.model }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{ ar.hbC }};">{{ ar.hb }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right;">{{ ar.done }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right; color: var(--fg2);">{{ ar.rej }}</span>
+                <div style="display: flex; gap: 4px; justify-content: flex-end;">
+                  <sc-for list="{{ ar.actions }}" as="ac" hint-placeholder-count="3">
+                    <button onClick="{{ ac.go }}" style="height: 24px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 5px; background: var(--panel); color: var(--fg2); font-size: 11.5px; cursor: pointer;" style-hover="color: var(--fg); border-color: var(--fg3);">{{ ac.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- STEPS TABLE: one row per lead lane, one column per step kind -->
+      <sc-if value="{{ isStepsTab }}" hint-placeholder-val="{{ false }}">
+        <div style="overflow-x: auto;">
+          <div style="min-width: 980px;">
+            <div style="display: grid; grid-template-columns: minmax(180px, 1.3fr) repeat(5, minmax(120px, 1fr)) 70px 140px; gap: 12px; padding: 9px 18px; background: var(--panel2); border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 500; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.04em;">
+              <span>Lead</span><span>Search</span><span>Create / update</span><span>Task</span><span>Draft</span><span>Send</span><span style="text-align: right;">Tries</span><span>Held by</span>
+            </div>
+            <sc-for list="{{ stepRows }}" as="sr" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: minmax(180px, 1.3fr) repeat(5, minmax(120px, 1fr)) 70px 140px; gap: 12px; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--line);" style-hover="background: var(--panel2);">
+                <div style="display: flex; flex-direction: column; min-width: 0;">
+                  <span style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ sr.name }}</span>
+                  <span style="font-size: 11.5px; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ sr.company }}</span>
+                </div>
+                <sc-for list="{{ sr.cells }}" as="ce" hint-placeholder-count="5">
+                  <span onClick="{{ ce.open }}" style="cursor: pointer;"><span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; color: {{ ce.c }}; background: color-mix(in oklch, {{ ce.c }} 11%, transparent); white-space: nowrap;"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{ ce.c }};"></span>{{ ce.label }}</span></span>
+                </sc-for>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right; color: {{ sr.triesC }};">{{ sr.tries }}</span>
+                <button onClick="{{ sr.open }}" style="justify-self: start; border: 0; background: transparent; padding: 0; color: var(--accent); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; cursor: pointer; white-space: nowrap;">{{ sr.holder }}</button>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- STEP GRAPH: plan → one lane per lead → converge. Click a node for its detail. -->
+      <sc-if value="{{ isGraphTab }}" hint-placeholder-val="{{ false }}">
+        <div style="overflow-x: auto; padding: 16px 18px 20px;">
+          <div style="min-width: 980px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 14px; flex-wrap: wrap; padding-bottom: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg2);">
+              <sc-for list="{{ legend }}" as="lg" hint-placeholder-count="8">
+                <span style="display: inline-flex; align-items: center; gap: 5px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{ lg.c }};"></span>{{ lg.label }}</span>
+              </sc-for>
+            </div>
+            <sc-for list="{{ graphRows }}" as="gr" hint-placeholder-count="10">
+              <div style="display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; align-items: center; padding: {{ gr.pad }};">
+                <div style="display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+                  <span style="font-size: 12.5px; font-weight: {{ gr.weight }}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ gr.label }}</span>
+                  <span style="font-size: 11px; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ gr.sub }}</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px;">
+                  <sc-for list="{{ gr.nodes }}" as="nd" hint-placeholder-count="5">
+                    <button onClick="{{ nd.open }}" style="position: relative; text-align: left; min-width: 0; background: var(--panel); border: 1px solid {{ nd.border }}; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; cursor: pointer; color: var(--fg);" style-hover="background: var(--panel2);">
+                      <sc-if value="{{ nd.notFirst }}" hint-placeholder-val="{{ false }}">
+                        <span style="position: absolute; left: -16px; top: 50%; transform: translateY(-50%); color: var(--fg3); font-size: 11px;">→</span>
+                      </sc-if>
+                      <span style="display: flex; justify-content: space-between; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;"><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ nd.kind }}</span><span style="color: {{ nd.attC }};">{{ nd.att }}</span></span>
+                      <span style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; color: {{ nd.c }};"><span style="flex: none; width: 7px; height: 7px; border-radius: 2px; background: {{ nd.c }};"></span>{{ nd.label }}</span>
+                      <span style="display: flex; gap: 5px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); min-width: 0; white-space: nowrap; overflow: hidden;"><span style="text-decoration: line-through;">{{ nd.prev }}</span><span style="overflow: hidden; text-overflow: ellipsis;">{{ nd.agent }}</span></span>
+                    </button>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ emptyTable }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 28px 18px; text-align: center; color: var(--fg3); font-size: 12.5px;">Nothing matches these filters.</div>
+      </sc-if>
+    </section>
+
+    <!-- ===================== RUN CONTROLS =====================
+         Every control maps to a backend setting (01-architecture §6, §9, §9a) and
+         visibly changes this page: escalations, ETA, budget, warnings. -->
+    <section style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow);">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); flex-wrap: wrap;">
+        <span style="font-size: 14px; font-weight: 600;">Run controls</span>
+        <span style="font-size: 12px; color: var(--fg3);">Changes apply from the next attempt and are logged to the ledger.</span>
+        <div style="flex: 1;"></div>
+        <sc-if value="{{ hasWarnings }}" hint-placeholder-val="{{ false }}">
+          <span style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 10px; font-size: 11.5px; font-weight: 500; color: var(--s-rejected); background: color-mix(in oklch, var(--s-rejected) 10%, transparent);">{{ warnLabel }}</span>
+        </sc-if>
+        <button onClick="{{ resetCtrl }}" style="height: 28px; padding: 0 10px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--fg2); font-size: 12px; cursor: pointer;">Reset to playbook defaults</button>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
+        <sc-for list="{{ ctrlGroups }}" as="g" hint-placeholder-count="4">
+          <div style="padding: 14px 18px 18px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; margin-right: -1px; margin-bottom: -1px;">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em;">{{ g.title }}</span>
+            <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="3">
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <sc-if value="{{ it.isSlider }}" hint-placeholder-val="{{ false }}">
+                  <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;"><span style="font-size: 12.5px; font-weight: 500;">{{ it.label }}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px;">{{ it.display }}</span></div>
+                  <input type="range" min="{{ it.min }}" max="{{ it.max }}" step="{{ it.step }}" value="{{ it.value }}" onChange="{{ it.onChange }}" style="width: 100%; accent-color: var(--fg); margin: 0;">
+                </sc-if>
+                <sc-if value="{{ it.isToggle }}" hint-placeholder-val="{{ false }}">
+                  <label onClick="{{ it.toggle }}" style="display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer;">
+                    <span style="font-size: 12.5px; font-weight: 500;">{{ it.label }}</span>
+                    <span style="flex: none; width: 30px; height: 18px; border-radius: 9px; background: {{ it.track }}; position: relative;"><span style="position: absolute; top: 2px; left: {{ it.knob }}px; width: 14px; height: 14px; border-radius: 50%; background: var(--panel);"></span></span>
+                  </label>
+                </sc-if>
+                <sc-if value="{{ it.isSeg }}" hint-placeholder-val="{{ false }}">
+                  <span style="font-size: 12.5px; font-weight: 500;">{{ it.label }}</span>
+                  <div style="display: flex; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden;">
+                    <sc-for list="{{ it.opts }}" as="op" hint-placeholder-count="3">
+                      <button onClick="{{ op.pick }}" style="flex: 1; height: 26px; border: 0; background: {{ op.bg }}; color: {{ op.fg }}; font-size: 11.5px; cursor: pointer;">{{ op.label }}</button>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ it.isFault }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ it.fire }}" title="{{ it.desc }}" style="text-align: left; padding: 8px 10px; border: 1px solid color-mix(in oklch, var(--s-rejected) 30%, var(--line)); border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px;" style-hover="background: color-mix(in oklch, var(--s-rejected) 6%, var(--panel));">
+                    <span style="font-size: 12.5px; font-weight: 500; color: var(--s-rejected);">{{ it.label }}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3);">{{ it.last }}</span>
+                  </button>
+                </sc-if>
+                <span style="font-size: 11.5px; line-height: 1.4; color: {{ it.noteC }}; text-wrap: pretty;">{{ it.note }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- ===================== CRITERIA · LIVE LEDGER ===================== -->
+    <section style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; align-items: start;">
+      <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow);">
+        <span style="font-size: 13.5px; font-weight: 500;">Success criteria</span>
+        <sc-for list="{{ criteria }}" as="cr" hint-placeholder-count="6">
+          <div style="display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; font-size: 12.5px; line-height: 1.45;">
+            <span style="font-family: 'IBM Plex Mono', monospace; color: {{ cr.c }};">{{ cr.icon }}</span><span style="text-wrap: pretty;">{{ cr.text }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow); min-width: 0;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 13.5px; font-weight: 500;">Live ledger</span>
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--s-committed);"></span>
+        </div>
+        <sc-for list="{{ events }}" as="e" hint-placeholder-count="8">
+          <div style="display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.5;">
+            <span style="color: var(--fg3);">{{ e.t }}</span>
+            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><span style="color: {{ e.c }};">{{ e.type }}</span> <span style="color: var(--fg2);">{{ e.payload }}</span></span>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- ===================== RECENT RUNS ===================== -->
+    <section style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow);">
+      <div style="padding: 14px 18px; font-size: 13.5px; font-weight: 500; border-bottom: 1px solid var(--line);">Recent runs</div>
+      <sc-for list="{{ runs }}" as="r" hint-placeholder-count="4">
+        <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr) 100px 70px 80px; gap: 16px; align-items: center; padding: 11px 18px; border-bottom: 1px solid var(--line); font-size: 12.5px;">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg3);">{{ r.id }}</span>
+          <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ r.goal }}</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{ r.c }};"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{ r.c }};"></span>{{ r.status }}</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2);">{{ r.dur }}</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">{{ r.steps }}</span>
+        </div>
+      </sc-for>
+    </section>
+  </main>
+  </sc-if>
+
+  <!-- ===================== REPORT VIEW (printable evidence report) ===================== -->
+  <sc-if value="{{ isReport }}" hint-placeholder-val="{{ false }}">
+    <div style="width: 100%; max-width: 1280px; margin: 0 auto; padding: 28px 28px 64px; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 32px; align-items: start;">
+      <!-- table of contents -->
+      <nav data-noprint="1" style="position: sticky; top: 8px; display: flex; flex-direction: column; gap: 2px; padding-top: 4px;">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em; padding: 0 10px 8px;">Report</span>
+        <sc-for list="{{ toc }}" as="tc" hint-placeholder-count="10">
+          <a href="{{ tc.href }}" style="padding: 6px 10px; border-radius: 6px; font-size: 12.5px; color: var(--fg2);" style-hover="background: var(--bg2); color: var(--fg);">{{ tc.label }}</a>
+        </sc-for>
+      </nav>
+
+      <main style="min-width: 0; display: flex; flex-direction: column; gap: 32px;">
+        <!-- SUMMARY -->
+        <section id="rep-summary" style="display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap;">
+            <div style="display: flex; flex-direction: column; gap: 8px; max-width: 760px;">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--fg3);">Evidence report · run_7f3a · {{ reportStatus }} · {{ elapsed }}</span>
+              <span style="font-size: 22px; font-weight: 600; line-height: 1.35; text-wrap: pretty;">{{ reportSummary }}</span>
+              <span style="font-size: 13px; color: var(--fg2);">Goal: Add the leads from yesterday's event to the CRM and set up follow-ups. · Playbook: Event leads SOP v3</span>
+            </div>
+            <div data-noprint="1" style="display: flex; gap: 6px;">
+              <button onClick="{{ exportMd }}" style="height: 32px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 6px; background: var(--panel); color: var(--fg); font-size: 12.5px; cursor: pointer; white-space: nowrap;">Export .md</button>
+              <button onClick="{{ printReport }}" style="height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap;">Print / PDF</button>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;">
+            <sc-for list="{{ reportStats }}" as="st" hint-placeholder-count="6">
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; color: {{ st.c }};">{{ st.n }}</span>
+                <span style="font-size: 12px; color: var(--fg2);">{{ st.label }}</span>
+                <span style="font-size: 11px; color: var(--fg3);">{{ st.sub }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <!-- 12 source rows by outcome -->
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px;">
+              <sc-for list="{{ outcomeBar }}" as="ob" hint-placeholder-count="5"><div title="{{ ob.label }}" style="flex: {{ ob.n }} 1 0; background: {{ ob.c }};"></div></sc-for>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--fg2);">
+              <sc-for list="{{ outcomeBar }}" as="ob" hint-placeholder-count="5"><span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{ ob.c }};"></span>{{ ob.label }} <span style="font-family: 'IBM Plex Mono', monospace; color: var(--fg);">{{ ob.n }}</span></span></sc-for>
+            </div>
+          </div>
+        </section>
+
+        <!-- TIMELINE -->
+        <section id="rep-timeline" style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; gap: 10px;"><span style="font-size: 15px; font-weight: 600;">Timeline</span><span style="font-size: 12px; color: var(--fg3);">Phases by agent. Red ticks are injected faults; each is followed by its recovery.</span></div>
+          <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; padding: 14px 16px; display: flex; flex-direction: column; gap: 7px;">
+            <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 14px;">
+              <span></span>
+              <div style="position: relative; height: 26px; border-bottom: 1px solid var(--line);">
+                <sc-for list="{{ ganttMarks }}" as="gm" hint-placeholder-count="5">
+                  <div title="{{ gm.label }}" style="position: absolute; left: {{ gm.left }}%; top: 0; bottom: -400px; width: 0; border-left: 1px dashed color-mix(in oklch, var(--s-rejected) 55%, transparent); pointer-events: none;"></div>
+                  <span style="position: absolute; left: {{ gm.left }}%; top: {{ gm.top }}px; transform: translateX(-50%); font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: var(--s-rejected); white-space: nowrap; background: var(--panel); padding: 0 3px;">{{ gm.short }}</span>
+                </sc-for>
+              </div>
+            </div>
+            <sc-for list="{{ gantt }}" as="gt" hint-placeholder-count="10">
+              <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 14px; align-items: center;">
+                <div style="display: flex; flex-direction: column; min-width: 0;">
+                  <span style="font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ gt.label }}</span>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3);">{{ gt.agent }}</span>
+                </div>
+                <div style="position: relative; height: 16px; border-radius: 3px; background: var(--panel2);">
+                  <div style="position: absolute; left: {{ gt.left }}%; width: {{ gt.width }}%; top: 0; bottom: 0; border-radius: 3px; background: {{ gt.c }};"></div>
+                  <span style="position: absolute; left: calc({{ gt.left }}% + {{ gt.width }}% + 6px); top: 0; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; line-height: 16px; color: var(--fg3); white-space: nowrap;">{{ gt.dur }}</span>
+                </div>
+              </div>
+            </sc-for>
+            <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 14px;">
+              <span></span>
+              <div style="position: relative; height: 14px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3);">
+                <sc-for list="{{ ganttTicks }}" as="tk" hint-placeholder-count="5"><span style="position: absolute; left: {{ tk.left }}%; transform: translateX({{ tk.shift }}); white-space: nowrap;">{{ tk.label }}</span></sc-for>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PER-LEAD OUTCOMES -->
+        <section id="rep-leads" style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <span style="font-size: 15px; font-weight: 600;">Every row in the file</span>
+            <span style="font-size: 12px; color: var(--fg3);">What happened to each lead, who decided, and how it was checked.</span>
+            <div style="flex: 1;"></div>
+            <div data-noprint="1" style="display: flex; gap: 4px;">
+              <sc-for list="{{ leadFilters }}" as="lf" hint-placeholder-count="5">
+                <button onClick="{{ lf.pick }}" style="height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid {{ lf.border }}; background: {{ lf.bg }}; color: {{ lf.fg }}; font-size: 11.5px; cursor: pointer; white-space: nowrap;">{{ lf.label }} <span style="opacity: 0.7; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;">{{ lf.n }}</span></button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; overflow-x: auto;">
+            <div style="min-width: 940px;">
+              <div style="display: grid; grid-template-columns: 30px 56px minmax(150px, 1.3fr) 120px 80px 70px 120px minmax(150px, 1.4fr) 60px; gap: 12px; padding: 9px 16px; background: var(--panel2); border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 500; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.04em;">
+                <span>#</span><span></span><span>Lead</span><span>Outcome</span><span>Owner</span><span>Task</span><span>Email</span><span>Decided / verified</span><span>CRM</span>
+              </div>
+              <sc-for list="{{ leadRows }}" as="lr" hint-placeholder-count="12">
+                <div style="display: grid; grid-template-columns: 30px 56px minmax(150px, 1.3fr) 120px 80px 70px 120px minmax(150px, 1.4fr) 60px; gap: 12px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--line);">
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ lr.n }}</span>
+                  <div style="width: 56px; height: 34px; border-radius: 4px; border: 1px solid var(--line); background: repeating-linear-gradient(135deg, var(--panel2) 0 4px, var(--bg2) 4px 8px); opacity: {{ lr.shotOp }};"></div>
+                  <div style="display: flex; flex-direction: column; min-width: 0;">
+                    <span style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ lr.name }}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ lr.company }} · {{ lr.email }}</span>
+                  </div>
+                  <span><span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; color: {{ lr.c }}; background: color-mix(in oklch, {{ lr.c }} 11%, transparent); white-space: nowrap;">{{ lr.outcome }}</span></span>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2);">{{ lr.owner }}</span>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2);">{{ lr.task }}</span>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{ lr.emailC }}; white-space: nowrap;">{{ lr.emailSt }}</span>
+                  <div style="display: flex; flex-direction: column; min-width: 0;">
+                    <span style="font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ lr.by }}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ lr.check }}</span>
+                  </div>
+                  <a href="#" style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">{{ lr.link }}</a>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </section>
+
+        <!-- DECISION LOG -->
+        <section id="rep-decisions" style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; gap: 10px;"><span style="font-size: 15px; font-weight: 600;">Decisions</span><span style="font-size: 12px; color: var(--fg3);">Confidence against the threshold in force. The line marks the threshold.</span></div>
+          <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;">
+            <sc-for list="{{ decisionLog }}" as="dl" hint-placeholder-count="4">
+              <div style="display: grid; grid-template-columns: minmax(0, 1.2fr) 200px minmax(0, 1fr) 110px; gap: 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line);">
+                <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                  <span style="font-size: 13px; font-weight: 500;">{{ dl.title }}</span>
+                  <span style="font-size: 11.5px; color: var(--fg3); text-wrap: pretty;">{{ dl.evidence }}</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                  <div style="position: relative; height: 8px; border-radius: 4px; background: var(--bg2);">
+                    <div style="position: absolute; left: 0; top: 0; bottom: 0; width: {{ dl.confPct }}%; border-radius: 4px; background: {{ dl.c }};"></div>
+                    <div style="position: absolute; left: {{ dl.thPct }}%; top: -3px; bottom: -3px; width: 2px; background: var(--fg);"></div>
+                  </div>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3);">{{ dl.confLabel }}</span>
+                </div>
+                <span style="font-size: 12.5px; text-wrap: pretty;">{{ dl.result }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3); text-align: right;">{{ dl.by }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- CRITERIA -->
+        <section id="rep-criteria" style="display: flex; flex-direction: column; gap: 10px;">
+          <span style="font-size: 15px; font-weight: 600;">Success criteria</span>
+          <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;">
+            <sc-for list="{{ reportCriteria }}" as="rc" hint-placeholder-count="6">
+              <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 11px 16px; border-bottom: 1px solid var(--line); align-items: start;">
+                <span><span style="display: inline-flex; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; color: {{ rc.c }}; background: color-mix(in oklch, {{ rc.c }} 11%, transparent);">{{ rc.verdict }}</span></span>
+                <span style="font-size: 13px; text-wrap: pretty;">{{ rc.text }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2); text-wrap: pretty;">{{ rc.how }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- VERIFICATION COVERAGE -->
+        <section id="rep-verification" style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; gap: 10px;"><span style="font-size: 15px; font-weight: 600;">Verification coverage</span><span style="font-size: 12px; color: var(--fg3);">Every claim checked through a different channel from the one used to act.</span></div>
+          <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: minmax(0, 1.3fr) 150px 60px 60px 70px 70px; gap: 12px; padding: 9px 16px; background: var(--panel2); border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 500; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.04em;"><span>Check</span><span>Channel</span><span style="text-align: right;">Runs</span><span style="text-align: right;">Pass</span><span style="text-align: right;">Reject</span><span style="text-align: right;">p50</span></div>
+            <sc-for list="{{ coverage }}" as="cv" hint-placeholder-count="7">
+              <div style="display: grid; grid-template-columns: minmax(0, 1.3fr) 150px 60px 60px 70px 70px; gap: 12px; padding: 9px 16px; border-bottom: 1px solid var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">
+                <span>{{ cv.k }}</span><span style="color: var(--fg2);">{{ cv.ch }}</span><span style="text-align: right;">{{ cv.runs }}</span><span style="text-align: right; color: var(--s-committed);">{{ cv.pass }}</span><span style="text-align: right; color: {{ cv.rejC }};">{{ cv.rej }}</span><span style="text-align: right; color: var(--fg2);">{{ cv.p50 }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- EMAILS -->
+        <section id="rep-emails" style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; gap: 10px;"><span style="font-size: 15px; font-weight: 600;">Follow-up emails</span><span style="font-size: 12px; color: var(--fg3);">{{ emailsNote }}</span></div>
+          <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 70px 110px 110px; gap: 12px; padding: 9px 16px; background: var(--panel2); border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 500; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.04em;"><span>Recipient</span><span>Subject</span><span style="text-align: right;">Judge</span><span>Approval</span><span>Delivery</span></div>
+            <sc-for list="{{ emailRows }}" as="er" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 70px 110px 110px; gap: 12px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--line);">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ er.to }}</span>
+                <span style="font-size: 12px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ er.subject }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; text-align: right;">{{ er.judge }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{ er.apC }};">{{ er.approval }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{ er.dC }};">{{ er.delivery }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- RECOVERIES -->
+        <section id="rep-recoveries" style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; gap: 10px;"><span style="font-size: 15px; font-weight: 600;">What went wrong and how it recovered</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--fg3);">1:19 lost in total · 0 duplicates</span></div>
+          <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;">
+            <sc-for list="{{ reportRecoveries }}" as="rv" hint-placeholder-count="4">
+              <div style="display: grid; grid-template-columns: 50px 120px minmax(0, 1fr) minmax(0, 1fr) 50px; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--line); align-items: start;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ rv.at }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--s-rejected);">{{ rv.fault }}</span>
+                <span style="font-size: 12.5px; color: var(--fg2); text-wrap: pretty;">{{ rv.what }}</span>
+                <span style="font-size: 12.5px; text-wrap: pretty;">{{ rv.recovery }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2); text-align: right;">{{ rv.lost }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- AGENTS + COST -->
+        <section id="rep-agents" style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; gap: 10px;"><span style="font-size: 15px; font-weight: 600;">Agents and cost</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--fg3);">412k tokens · $0.83 · $0.07 per lead</span></div>
+          <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 56px 64px 60px 60px 64px 64px; gap: 12px; padding: 9px 16px; background: var(--panel2); border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 500; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.04em;"><span>Agent</span><span>Model</span><span style="text-align: right;">Steps</span><span style="text-align: right;">Reject</span><span style="text-align: right;">Retry</span><span style="text-align: right;">p50</span><span style="text-align: right;">Tokens</span><span style="text-align: right;">Cost</span></div>
+            <sc-for list="{{ agentPerf }}" as="ap" hint-placeholder-count="9">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 56px 64px 60px 60px 64px 64px; gap: 12px; padding: 9px 16px; border-bottom: 1px solid var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">
+                <span style="font-family: 'IBM Plex Sans', sans-serif; font-size: 12.5px;">{{ ap.agent }}</span><span style="color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ ap.model }}</span><span style="text-align: right;">{{ ap.steps }}</span><span style="text-align: right; color: var(--fg2);">{{ ap.rej }}</span><span style="text-align: right; color: var(--fg2);">{{ ap.retry }}</span><span style="text-align: right; color: var(--fg2);">{{ ap.p50 }}</span><span style="text-align: right; color: var(--fg2);">{{ ap.tok }}</span><span style="text-align: right;">{{ ap.cost }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- DATA QUALITY -->
+        <section id="rep-data" style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: baseline; gap: 10px;"><span style="font-size: 15px; font-weight: 600;">Input file</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--fg3);">event_attendees.csv · 12 rows · sha256 3f9e…a1</span></div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px;">
+            <sc-for list="{{ dataQuality }}" as="dq" hint-placeholder-count="8">
+              <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 16px;">{{ dq.n }}</span>
+                <span style="font-size: 12px; color: var(--fg2);">{{ dq.label }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3);">{{ dq.ex }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- REPRODUCIBILITY -->
+        <section id="rep-repro" style="display: flex; flex-direction: column; gap: 10px;">
+          <span style="font-size: 15px; font-weight: 600;">Reproduce this run</span>
+          <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;">
+            <sc-for list="{{ repro }}" as="rp" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 14px; padding: 8px 16px; border-bottom: 1px solid var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;"><span style="color: var(--fg3);">{{ rp.k }}</span><span style="overflow-wrap: anywhere;">{{ rp.v }}</span></div>
+            </sc-for>
+            <div style="padding: 12px 16px; background: var(--panel2); font-family: 'IBM Plex Mono', monospace; font-size: 12px;">{{ replayCmd }}</div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </sc-if>
+  </div>
+</div>
+
+<!-- BUILDER (embedded canvas) -->
+<div style="height: 100vh; display: {{ builderDisplay }};">
+  <dc-import name="Ledger Canvas" active="{{ isBuilder }}" theme="{{ theme }}" on-navigate="{{ navigate }}" on-toggle-theme="{{ toggleTheme }}" hint-size="100%,100vh" style="width: 100%; height: 100%;"></dc-import>
+</div>
+
+<!-- ===================== STEP DRAWER: inputs, postcondition, every attempt ===================== -->
+<sc-if value="{{ stepOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeStep }}" style="position: fixed; inset: 0; background: color-mix(in oklch, var(--bg) 40%, rgba(0,0,0,0.35)); z-index: 10;"></div>
+  <aside style="position: fixed; top: 0; right: 0; bottom: 0; width: 600px; max-width: 94vw; background: var(--panel); border-left: 1px solid var(--line); z-index: 11; display: flex; flex-direction: column; box-shadow: var(--shadow);">
+    <div style="padding: 18px 22px 16px; border-top: 3px solid {{ sd.c }}; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+      <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0;">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ sd.id }} · {{ sd.lead }}</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 16px;">{{ sd.kind }}</span>
+        <span style="display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 10px; font-size: 11.5px; font-weight: 500; color: {{ sd.c }}; background: color-mix(in oklch, {{ sd.c }} 12%, transparent);"><span style="width: 6px; height: 6px; border-radius: 2px; background: {{ sd.c }};"></span>{{ sd.label }}</span>
+      </div>
+      <button onClick="{{ closeStep }}" style="border: 1px solid var(--line2); background: transparent; color: var(--fg2); border-radius: 5px; padding: 4px 10px; cursor: pointer;">Esc</button>
+    </div>
+    <div style="flex: 1; min-height: 0; overflow: auto; padding: 20px 22px 32px; display: flex; flex-direction: column; gap: 22px;">
+      <div style="display: flex; flex-direction: column;">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 6px;">Inputs (from committed facts)</span>
+        <sc-for list="{{ sd.inputs }}" as="ip" hint-placeholder-count="4">
+          <div style="display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;"><span style="color: var(--fg3);">{{ ip.k }}</span><span style="overflow-wrap: anywhere;">{{ ip.v }}</span></div>
+        </sc-for>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em;">Postcondition</span>
+        <span style="font-size: 13px; line-height: 1.5; text-wrap: pretty;">{{ sd.post }}</span>
+        <pre style="margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg2); white-space: pre-wrap;">{{ sd.json }}</pre>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em;">Attempts</span>
+        <sc-if value="{{ sd.noAttempts }}" hint-placeholder-val="{{ false }}">
+          <span style="font-size: 12.5px; color: var(--fg3);">{{ sd.waiting }}</span>
+        </sc-if>
+        <sc-for list="{{ sd.attempts }}" as="at" hint-placeholder-count="1">
+          <div style="border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; justify-content: space-between; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">
+              <span>attempt {{ at.n }} · <span style="text-decoration: {{ at.strike }};">{{ at.worker }}</span></span><span style="color: var(--fg3);">{{ at.model }}</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 12px; font-size: 12.5px; line-height: 1.45;">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">observation</span><span style="color: var(--fg2);">{{ at.obs }}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">claim</span><span style="color: var(--s-claimed);">{{ at.claim }}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">verdict</span><span style="color: {{ at.vc }}; font-weight: 500;">{{ at.verdict }}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">reason</span><span style="color: var(--fg2);">{{ at.reason }}</span>
+            </div>
+            <sc-if value="{{ at.shots }}" hint-placeholder-val="{{ false }}">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <div style="aspect-ratio: 16 / 10; border-radius: 6px; border: 1px solid var(--line); background: repeating-linear-gradient(135deg, var(--panel2) 0 5px, var(--bg2) 5px 10px); display: grid; place-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3);">before.png</div>
+                <div style="aspect-ratio: 16 / 10; border-radius: 6px; border: 1px solid var(--line); background: repeating-linear-gradient(135deg, var(--panel2) 0 5px, var(--bg2) 5px 10px); display: grid; place-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3);">after.png</div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </aside>
+</sc-if>
+
+<!-- ===================== AGENT SHEET: unique properties per box ===================== -->
+<sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeSheet }}" style="position: fixed; inset: 0; background: color-mix(in oklch, var(--bg) 40%, rgba(0,0,0,0.35)); z-index: 10;"></div>
+  <aside style="position: fixed; top: 0; right: 0; bottom: 0; width: 640px; max-width: 94vw; background: var(--panel); border-left: 1px solid var(--line); z-index: 11; display: flex; flex-direction: column; box-shadow: var(--shadow);">
+    <div style="padding: 18px 22px 0; border-top: 3px solid {{ ag.c }}; display: flex; flex-direction: column; gap: 14px;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ ag.id }} · {{ ag.role }}</span>
+          <span style="font-size: 18px; font-weight: 500;">{{ ag.name }}</span>
+          <span style="display: flex; align-items: center; gap: 7px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{ ag.c }};"><span style="width: 7px; height: 7px; border-radius: 2px; background: {{ ag.c }};"></span>{{ ag.status }}</span>
+        </div>
+        <button onClick="{{ closeSheet }}" style="border: 1px solid var(--line2); background: transparent; color: var(--fg2); border-radius: 5px; padding: 4px 10px; cursor: pointer;">Esc</button>
+      </div>
+      <div style="display: flex; gap: 2px; border-bottom: 1px solid var(--line);">
+        <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="4">
+          <button onClick="{{ tb.pick }}" style="padding: 9px 12px; border: 0; border-bottom: 2px solid {{ tb.bar }}; margin-bottom: -1px; background: transparent; color: {{ tb.fg }}; font-size: 12.5px; font-weight: 500; cursor: pointer;">{{ tb.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="flex: 1; min-height: 0; overflow: auto; padding: 20px 22px 32px; display: flex; flex-direction: column; gap: 20px;">
+
+      <!-- OVERVIEW -->
+      <sc-if value="{{ tOverview }}" hint-placeholder-val="{{ false }}">
+        <p style="margin: 0; line-height: 1.6; color: var(--fg2); text-wrap: pretty;">{{ ag.desc }}</p>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+          <sc-for list="{{ ag.metrics }}" as="mt" hint-placeholder-count="3">
+            <div style="border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px;">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 18px;">{{ mt.v }}</span>
+              <span style="font-size: 11.5px; color: var(--fg3);">{{ mt.k }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 6px;">Properties</span>
+          <sc-for list="{{ ag.props }}" as="pr" hint-placeholder-count="6">
+            <div style="display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">
+              <span style="color: var(--fg3);">{{ pr.k }}</span><span style="overflow-wrap: anywhere;">{{ pr.v }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <!-- PROMPT: system prompt + injection layers -->
+      <sc-if value="{{ tPrompt }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em;">System prompt</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">prompts/{{ ag.id }}.md · {{ promptVer }}</span>
+          </div>
+          <textarea key="{{ promptKey }}" defaultValue="{{ ag.prompt }}" onChange="{{ promptChange }}" style="width: 100%; min-height: 150px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; color: var(--fg); font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.6; padding: 12px 14px; resize: vertical; outline: none;"></textarea>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <button onClick="{{ savePrompt }}" style="height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: {{ saveBg }}; color: var(--bg); font-size: 12px; font-weight: 500; cursor: pointer;">Save as {{ nextVer }}</button>
+            <span style="font-size: 11.5px; color: var(--fg3);">{{ saveNote }}</span>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em;">Injections · rebuilt every attempt</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg2);">≈ {{ tokTotal }} tok</span>
+          </div>
+          <sc-for list="{{ injections }}" as="inj" hint-placeholder-count="5">
+            <div style="border: 1px solid var(--line); border-radius: 8px; padding: 11px 14px; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 34px; gap: 12px; align-items: start; opacity: {{ inj.op }};">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3); padding-top: 1px;">{{ inj.n }}</span>
+              <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+                <span style="font-size: 13px; font-weight: 500;">{{ inj.name }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ inj.src }}{{ inj.lockNote }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2); line-height: 1.5; white-space: pre-wrap;">{{ inj.preview }}</span>
+              </div>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ inj.tok }}</span>
+              <span onClick="{{ inj.toggle }}" title="{{ inj.lockNote }}" style="width: 30px; height: 18px; border-radius: 9px; background: {{ inj.trackBg }}; position: relative; cursor: {{ inj.cursor }}; opacity: {{ inj.lockOp }};"><span style="position: absolute; top: 2px; left: {{ inj.knob }}px; width: 14px; height: 14px; border-radius: 50%; background: var(--panel);"></span></span>
+            </div>
+          </sc-for>
+          <div style="font-size: 12px; color: var(--fg3); line-height: 1.5;">Never injected: other agents' messages, uncommitted claims, full run history.</div>
+        </div>
+      </sc-if>
+
+      <!-- TOOLS: API / MCP / function calls -->
+      <sc-if value="{{ tTools }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em;">Tools</span>
+            <div style="display: flex; gap: 6px;">
+              <button onClick="{{ addMcp }}" style="padding: 5px 10px; border: 1px solid var(--line2); border-radius: 5px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer;">+ MCP server</button>
+              <button onClick="{{ addHttp }}" style="padding: 5px 10px; border: 1px solid var(--line2); border-radius: 5px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer;">+ HTTP API</button>
+              <button onClick="{{ addFn }}" style="padding: 5px 10px; border: 1px solid var(--line2); border-radius: 5px; background: transparent; color: var(--fg); font-size: 12px; cursor: pointer;">+ Function</button>
+            </div>
+          </div>
+          <sc-for list="{{ tools }}" as="tl" hint-placeholder-count="3">
+            <div style="border: 1px solid var(--line); border-radius: 8px; padding: 11px 14px; display: grid; grid-template-columns: 62px minmax(0, 1fr) 34px; gap: 12px; align-items: center; opacity: {{ tl.op }};">
+              <span style="justify-self: start; padding: 2px 6px; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.04em; color: {{ tl.tc }}; background: color-mix(in oklch, {{ tl.tc }} 12%, transparent);">{{ tl.type }}</span>
+              <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px;">{{ tl.name }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3); overflow-wrap: anywhere;">{{ tl.target }}</span>
+                <sc-if value="{{ tl.note }}" hint-placeholder-val="{{ false }}"><span style="font-size: 11.5px; color: var(--s-rejected);">{{ tl.note }}</span></sc-if>
+              </div>
+              <span onClick="{{ tl.toggle }}" style="width: 30px; height: 18px; border-radius: 9px; background: {{ tl.trackBg }}; position: relative; cursor: pointer;"><span style="position: absolute; top: 2px; left: {{ tl.knob }}px; width: 14px; height: 14px; border-radius: 50%; background: var(--panel);"></span></span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 6px;">Recent tool calls</span>
+          <sc-for list="{{ ag.calls }}" as="cl" hint-placeholder-count="3">
+            <div style="display: grid; grid-template-columns: 58px minmax(0, 1fr) 40px 52px; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 11px; align-items: center;">
+              <span style="color: var(--fg3);">{{ cl.t }}</span>
+              <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ cl.call }}</span>
+              <span style="color: {{ cl.c }};">{{ cl.code }}</span>
+              <span style="color: var(--fg3); text-align: right;">{{ cl.ms }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <!-- LEDGER: streams & keys -->
+      <sc-if value="{{ tStreams }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column;">
+          <sc-for list="{{ streams }}" as="sk" hint-placeholder-count="8">
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) 70px 90px; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">
+              <span>{{ sk.k }}</span><span style="color: var(--fg3);">{{ sk.type }}</span><span style="text-align: right; color: var(--fg2);">{{ sk.n }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <!-- VERIFIER: postcondition registry -->
+      <sc-if value="{{ tChecks }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column;">
+          <sc-for list="{{ checks }}" as="ck" hint-placeholder-count="7">
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) 120px 60px; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 12px; align-items: center;">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">{{ ck.k }}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">{{ ck.via }}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg2); text-align: right;">{{ ck.n }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <!-- PLAYBOOK: content -->
+      <sc-if value="{{ tContent }}" hint-placeholder-val="{{ false }}">
+        <sc-for list="{{ playbook }}" as="pb" hint-placeholder-count="6">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; justify-content: space-between;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--fg2);">§ {{ pb.h }}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3);">→ {{ pb.used }}</span></div>
+            <textarea defaultValue="{{ pb.b }}" style="width: 100%; min-height: 64px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; color: var(--fg); font-size: 12.5px; line-height: 1.55; padding: 10px 12px; resize: vertical; outline: none;"></textarea>
+          </div>
+        </sc-for>
+      </sc-if>
+
+      <!-- HUMAN: inbox (input required) -->
+      <sc-if value="{{ tInbox }}" hint-placeholder-val="{{ false }}">
+        <sc-if value="{{ clarOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 14px; font-weight: 500;">1 lead needs a decision</span><span style="font-size: 12px; color: var(--fg3);">The meta-reviewer resolved the other ambiguous rows; this one scored 0.52, below the 0.80 auto threshold.</span></div>
+            <sc-for list="{{ clarRows }}" as="cr" hint-placeholder-count="3">
+              <div style="border: 1px solid var(--line); border-radius: 8px; padding: 11px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;"><span style="font-weight: 500;">{{ cr.name }} <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--fg3); font-weight: 400;">{{ cr.src }}</span></span><span style="font-size: 12px; color: var(--fg2);">{{ cr.why }}</span></div>
+                <div style="display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end;">
+                  <sc-for list="{{ cr.opts }}" as="o" hint-placeholder-count="3">
+                    <button onClick="{{ o.pick }}" style="padding: 5px 9px; border-radius: 5px; border: 1px solid {{ o.border }}; background: {{ o.bg }}; color: {{ o.fg }}; font-size: 12px; cursor: pointer;">{{ o.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+            <button onClick="{{ submitClar }}" style="align-self: flex-start; height: 34px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--s-input); color: #FFFFFF; font-weight: 600; cursor: pointer;">Submit decisions</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ approveOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 14px; font-weight: 500;">8 follow-up emails ready to send</span><span style="font-size: 12px; color: var(--fg3);">Playbook § Approval: every external email needs approval.</span></div>
+            <div style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden;">
+              <sc-for list="{{ emails }}" as="m" hint-placeholder-count="8">
+                <div style="border-bottom: 1px solid var(--line);">
+                  <div onClick="{{ m.toggle }}" style="display: grid; grid-template-columns: 18px minmax(0, 0.9fr) minmax(0, 1.3fr) 12px; gap: 10px; align-items: center; padding: 9px 12px; cursor: pointer;">
+                    <span onClick="{{ m.toggleSel }}" style="width: 16px; height: 16px; border-radius: 4px; border: 1px solid {{ m.boxBorder }}; background: {{ m.boxBg }}; display: grid; place-items: center; color: #FFFFFF; font-size: 11px; font-weight: 600;">{{ m.check }}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ m.to }}</span>
+                    <span style="font-size: 12px; color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ m.subject }}</span>
+                    <span style="color: var(--fg3); font-size: 11px;">{{ m.caret }}</span>
+                  </div>
+                  <sc-if value="{{ m.open }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding: 0 12px 12px 40px;"><textarea defaultValue="{{ m.body }}" style="width: 100%; min-height: 110px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; color: var(--fg); font-size: 12.5px; line-height: 1.55; padding: 10px; resize: vertical; outline: none;"></textarea></div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button onClick="{{ submitApprove }}" style="height: 34px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--s-input); color: #FFFFFF; font-weight: 600; cursor: pointer;">Approve {{ selCount }}</button>
+              <button onClick="{{ rejectAll }}" style="height: 34px; padding: 0 14px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--s-rejected); cursor: pointer;">Reject with note</button>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noNeeds }}" hint-placeholder-val="{{ false }}">
+          <span style="color: var(--fg3);">Inbox is empty. Your answers were committed to the ledger as facts.</span>
+        </sc-if>
+      </sc-if>
+
+      <!-- SHELL: live container terminal (always dark) -->
+      <sc-if value="{{ tShell }}" hint-placeholder-val="{{ false }}">
+        <div style="border-radius: 10px; overflow: hidden; border: 1px solid #24262B; background: #0E0F11; display: flex; flex-direction: column; min-height: 420px;">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 9px 14px; background: #16171A; border-bottom: 1px solid #24262B; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #A3A7AE;">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ ag.shellDot }};"></span>
+            <span style="color: #E7E8EA;">{{ ag.container }}</span>
+            <span>{{ ag.image }}</span>
+            <span style="flex: 1;"></span>
+            <span>cpu {{ cpu }}%</span><span>mem {{ ag.mem }}</span>
+            <button onClick="{{ toggleFollow }}" style="padding: 2px 8px; border: 1px solid #2E3036; border-radius: 4px; background: {{ followBg }}; color: #E7E8EA; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; cursor: pointer;">follow logs</button>
+          </div>
+          <div ref="{{ termRef }}" onClick="{{ focusShell }}" style="flex: 1; overflow: auto; padding: 12px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.6; max-height: 460px; cursor: text;">
+            <sc-for list="{{ shellLines }}" as="ln" hint-placeholder-count="4">
+              <div style="color: {{ ln.c }}; white-space: pre-wrap; overflow-wrap: anywhere;">{{ ln.text }}</div>
+            </sc-for>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span style="color: #7FD1A1; white-space: nowrap;">{{ ag.promptStr }}</span>
+              <input ref="{{ shellRef }}" value="{{ shellInput }}" onChange="{{ shellChange }}" onKeyDown="{{ shellKey }}" spellcheck="false" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #E7E8EA; font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 0;">
+            </div>
+          </div>
+        </div>
+        <span style="font-size: 11.5px; color: var(--fg3);">Try <span style="font-family: 'IBM Plex Mono', monospace;">help</span>, <span style="font-family: 'IBM Plex Mono', monospace;">ps</span>, <span style="font-family: 'IBM Plex Mono', monospace;">env</span>, <span style="font-family: 'IBM Plex Mono', monospace;">tail</span>, <span style="font-family: 'IBM Plex Mono', monospace;">tools</span>. Sandboxed <span style="font-family: 'IBM Plex Mono', monospace;">docker exec</span>: non-root, no host mounts, compose network only.</span>
+      </sc-if>
+    </div>
+  </aside>
+</sc-if>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;liveFeed&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+/**
+ * Ledger Dashboard — minimal at-a-glance view of the multi-agent system.
+ *
+ * Abstracted model: Playbook → Orchestrator → Ledger → Agents (workers + human) → Verifier.
+ * Clicking any box opens a sheet with that component's own tabs:
+ *   Overview (properties/metrics) · Prompt (system prompt + injection layers)
+ *   Tools (API / MCP / function calls) · Shell (live container terminal)
+ *   + Streams (ledger), Checks (verifier), Content (playbook), Inbox (human).
+ *
+ * Front-end only; MOCK data mirrors the API in 01-architecture.md:
+ *   AGENTS → GET /agents (+ proposed GET/PUT /agents/{id}/prompt, /tools)
+ *   EVENTS → SSE /stream?run_id=     approvals → GET/POST /approvals
+ *   Shell  → proposed WS /agents/{id}/exec (docker exec bridge)
+ * Theme: CSS variables in <helmet>; html[data-theme] set from localStorage
+ * key "ledger.theme" (shared with Ledger Canvas).
+ */
+
+// Status → theme variable (step state palette).
+const SC = { ready: 'var(--s-ready)', skipped: 'var(--fg3)', idle: 'var(--fg3)', planned: 'var(--s-planned)', leased: 'var(--s-leased)', claimed: 'var(--s-claimed)', committed: 'var(--s-committed)', input: 'var(--s-input)', dead: 'var(--s-dead)', rejected: 'var(--s-rejected)' };
+const pill = on => ({ bg: on ? 'var(--fg)' : 'transparent', fg: on ? 'var(--bg)' : 'var(--fg2)', border: on ? 'var(--fg)' : 'var(--line2)' });
+const toggleVals = on => ({ trackBg: on ? 'var(--s-committed)' : 'var(--line2)', knob: on ? 14 : 2 });
+
+// Injection layers (architecture §7). Per-agent playbook sections differ.
+const INJ = (sections, extra = {}) => [
+  { id: 'role', name: 'Role + skill instructions', src: 'static', tok: 310, preview: extra.role || 'Role, allowed skills, output contract.' },
+  { id: 'playbook', name: 'Playbook sections', src: `playbook.md ${sections}`, tok: 540, preview: extra.pb || 'Only the sections relevant to this step kind.' },
+  { id: 'step', name: 'Step + inputs from committed facts', src: 'facts:run_7f3a', tok: 180, preview: extra.step || 'kind, inputs, postcondition' },
+  { id: 'history', name: 'Prior attempts + rejection reasons', src: 'step.history', tok: 220, preview: extra.hist || 'attempt 1 rejected: "no record via REST"' },
+  { id: 'schema', name: 'Output schema', src: 'claim.schema.json', tok: 120, preview: extra.schema || '{ status, observation, evidence[] }' },
+];
+
+// ---------------------------------------------------------------------------
+// MOCK: agent cards with per-component config. Replace with GET /agents.
+// ---------------------------------------------------------------------------
+const AGENTS = {
+  playbook: {
+    name: 'Playbook', role: 'context', st: ['committed', 'v3 · loaded'], meta: 'Event leads SOP · 6 sections',
+    tabs: ['Overview', 'Content'],
+    desc: 'Company context that fills in everything the one-line goal leaves out. It is split into sections; each worker only receives the sections relevant to its step kind.',
+    metrics: [['6', 'sections'], ['v3', 'version'], ['a91c', 'hash']],
+    props: [['path', 'playbooks/event-leads.md'], ['loaded_by', 'orchestrator'], ['sectioning', 'by step kind'], ['last_edit', 'Oct 2 · a.chen']],
+  },
+  orch: {
+    name: 'Orchestrator', role: 'planner', st: ['leased', 'watching · 46 steps'], meta: 'claude-sonnet-4.5',
+    tabs: ['Overview', 'Prompt', 'Tools', 'Shell'],
+    desc: 'Turns goal + playbook into checkable success criteria and a step graph. Routes by skill, never by worker. Replans after repeated rejections and reaps expired leases every 2s.',
+    metrics: [['46', 'steps planned'], ['1', 'replans'], ['2s', 'reaper interval']],
+    props: [['agent_id', 'orchestrator'], ['model', 'anthropic/claude-sonnet-4.5'], ['fallback', 'openai/gpt-4.1'], ['temperature', '0.2'], ['replan_after', '2 rejections'], ['reads', 'facts only'], ['writes', 'task.submit · plan.*']],
+    prompt: 'You are the orchestrator for Ledger.\n\nExpand the goal into explicit, checkable success criteria using the playbook.\nEmit a step graph. Every step names a skill and a registered postcondition.\nNever name a specific worker. Read only committed facts.\nBatch all ambiguous rows into one human question.',
+    inj: INJ('§ all', { step: 'goal, file ref, criteria so far', hist: 'plan.revised ×1 (UI path blocked)', schema: '{ criteria[], steps[] }' }),
+    tools: [['FUNC', 'plan.create', 'ledger_core.orchestrator'], ['FUNC', 'route.by_skill', 'queue:{skill}'], ['MCP', 'ledger-mcp', 'stdio · read_facts, list_steps'], ['REST', 'ledger api', 'http://api:8000']],
+    calls: [['14:05:10', 'route.by_skill("human", stp_90)', '200', '4ms'], ['14:04:00', 'reap_leases() → stp_41', '200', '2ms'], ['14:02:34', 'plan.create(fanout=5)', '200', '1.8s']],
+    container: 'ledger-orchestrator-1', image: 'ledger/core:0.4', mem: '182 MB', host: 'orchestrator',
+    logs: ['reaper: 0 expired leases', 'heartbeat ok · 9 agents', 'facts updated → recheck plan', 'step.ready stp_53 → queue:email.draft'],
+  },
+  ledger: {
+    name: 'Ledger', role: 'source of truth', st: ['committed', 'healthy · AOF on'], meta: '1,284 events · 46 facts',
+    tabs: ['Overview', 'Streams', 'Shell'],
+    desc: 'Redis 7 with streams and hashes. Append-only event log, step records, leases with fencing tokens, per-skill queues and committed facts. Agents never read each other\'s messages; they read this.',
+    metrics: [['1,284', 'events'], ['46', 'facts'], ['0', 'stale-token writes']],
+    props: [['image', 'redis:7'], ['persistence', 'AOF everysec'], ['lease_ttl', '15000 ms'], ['heartbeat', '5 s'], ['consumer_groups', '6'], ['memory', '38 MB']],
+    container: 'ledger-redis-1', image: 'redis:7', mem: '38 MB', host: 'redis', prompt: '',
+    logs: ['XADD ledger:events step.heartbeat', 'SET lease:stp_41 NX PX 15000', 'INCR fence:stp_41 → 2', 'HSET facts:run_7f3a lead:4.contact'],
+  },
+  parser: {
+    name: 'Parser', role: 'worker', st: ['idle', 'idle'], meta: 'file.csv · file.pdf',
+    tabs: ['Overview', 'Prompt', 'Tools', 'Shell'],
+    desc: 'Normalises messy attendee files: names, emails, phones, companies. Flags unusable rows with a reason instead of guessing.',
+    metrics: [['1', 'steps done'], ['0%', 'rejected'], ['2.1s', 'p50']],
+    props: [['agent_id', 'worker-parser'], ['skills', 'file.csv, file.pdf'], ['model', 'anthropic/claude-haiku-4.5'], ['fallback', 'openai/gpt-4.1-mini'], ['side_effects', 'false'], ['max_attempts', '3']],
+    prompt: 'You normalise attendee files into rows that match the schema.\nTrim whitespace, normalise phones to E.164, lowercase emails.\nFlag unusable rows with a reason. Never invent an email.',
+    inj: INJ('§ Dedupe rules', { step: 'file: event_attendees.csv (12 rows)', hist: '—', schema: '{ rows[], flagged[] }' }),
+    tools: [['FUNC', 'csv.read', 'ledger_core.workers.parser'], ['FUNC', 'pdf.extract', 'pdfplumber'], ['FUNC', 'phone.normalise', 'phonenumbers']],
+    calls: [['14:02:29', 'csv.read("event_attendees.csv")', '200', '38ms'], ['14:02:30', 'phone.normalise ×12', '200', '6ms']],
+    container: 'ledger-worker-parser-1', image: 'ledger/core:0.4', mem: '96 MB', host: 'worker-parser',
+    logs: ['lease loop: waiting on queue:file.parse', 'heartbeat ok'],
+  },
+  b1: {
+    name: 'Browser operator 1', role: 'worker', st: ['dead', 'lost · stp_41 taken over'], meta: 'browser.espocrm',
+    tabs: ['Overview', 'Prompt', 'Tools', 'Shell'],
+    desc: 'Heartbeat stale for 92s. Its lease on stp_41 expired, the fencing token was bumped, and Browser operator 2 took over. Any late write from this worker is rejected.',
+    metrics: [['7', 'steps done'], ['0%', 'rejected'], ['92s', 'since heartbeat']],
+    props: [['agent_id', 'worker-browser-1'], ['skills', 'browser.espocrm'], ['model', 'anthropic/claude-haiku-4.5'], ['fallback', 'openai/gpt-4.1-mini'], ['last_token', 'stp_41 · 1 (stale)'], ['side_effects', 'true']],
+    prompt: 'You operate EspoCRM through the browser.\nBefore any write, check whether the postcondition already holds; if it does, claim done without acting.\nAttach a screenshot to every claim. Never report a success you did not observe.',
+    inj: INJ('§ Dedupe · § Owner routing', { step: 'crm.create_contact · lead:4 Tom Becker', hist: '—', schema: '{ status, observation, screenshot }' }),
+    tools: [['BROWSER', 'playwright.chromium', 'headless · espocrm:80'], ['MCP', 'playwright-mcp', 'stdio · navigate, click, fill, snapshot'], ['FUNC', 'screenshot.save', 'volume: evidence/'], ['REST', 'espocrm REST', 'blocked for workers', 'Verifier-only channel. Workers act through the UI.']],
+    calls: [['14:03:38', 'fill(#name, "Tom Becker")', '200', '120ms'], ['14:03:39', 'click(button.save)', '—', 'killed']],
+    container: 'ledger-worker-browser-1', image: 'ledger/browser:0.4', mem: '—', host: 'worker-browser-1', dead: true,
+    logs: [],
+  },
+  b2: {
+    name: 'Browser operator 2', role: 'worker', st: ['leased', 'stp_41 create_contact'], meta: 'browser.espocrm',
+    tabs: ['Overview', 'Prompt', 'Tools', 'Shell'],
+    desc: 'Drives EspoCRM through the browser. Currently holding stp_41 after taking it over with fencing token 2. Check-then-act made the takeover idempotent.',
+    metrics: [['9', 'steps done'], ['10%', 'rejected'], ['3.4s', 'p50']],
+    props: [['agent_id', 'worker-browser-2'], ['skills', 'browser.espocrm'], ['model', 'anthropic/claude-haiku-4.5'], ['fallback', 'openai/gpt-4.1-mini'], ['lease', 'stp_41 · token 2 · ttl 9.8s'], ['side_effects', 'true']],
+    prompt: 'You operate EspoCRM through the browser.\nBefore any write, check whether the postcondition already holds; if it does, claim done without acting.\nAttach a screenshot to every claim. Never report a success you did not observe.',
+    inj: INJ('§ Dedupe · § Owner routing', { step: 'crm.create_contact · lead:4 Tom Becker', hist: 'attempt 1 by worker-browser-1: lease expired', schema: '{ status, observation, screenshot }' }),
+    tools: [['BROWSER', 'playwright.chromium', 'headless · espocrm:80'], ['MCP', 'playwright-mcp', 'stdio · navigate, click, fill, snapshot'], ['FUNC', 'screenshot.save', 'volume: evidence/'], ['REST', 'espocrm REST', 'blocked for workers', 'Verifier-only channel. Workers act through the UI.']],
+    calls: [['14:04:02', 'search("tom.becker@orbitalfreight.com")', '200', '840ms'], ['14:04:04', 'fill(form.contact, 5 fields)', '200', '310ms'], ['14:04:05', 'screenshot.save(stp_41_after.png)', '200', '90ms']],
+    container: 'ledger-worker-browser-2', image: 'ledger/browser:0.4', mem: '412 MB', host: 'worker-browser-2',
+    logs: ['heartbeat stp_41 token=2 ttl=15000', 'page: #/Contact/view/5f31', 'claim written stp_41', 'lease released stp_41'],
+  },
+  drafter: {
+    name: 'Drafter', role: 'worker', st: ['idle', 'waiting on approval'], meta: 'email.draft',
+    tabs: ['Overview', 'Prompt', 'Tools', 'Shell'],
+    desc: 'Writes one follow-up email per lead from committed facts only. Fell back to the secondary model once during a 503.',
+    metrics: [['8', 'drafts'], ['1', 'model fallback'], ['4.2s', 'p50']],
+    props: [['agent_id', 'worker-drafter'], ['skills', 'email.draft'], ['model', 'anthropic/claude-haiku-4.5'], ['fallback', 'openai/gpt-4.1-mini (active once)'], ['max_words', '150'], ['side_effects', 'false']],
+    prompt: 'Write one follow-up email per lead using committed facts only.\nFollow the playbook tone rules: warm, specific, under 150 words, one clear ask.\nNever mention facts that are not committed.',
+    inj: INJ('§ Follow-up policy', { step: 'lead:1 Priya Raman · Northwind · owner a.chen', hist: 'llm.error 503 → fallback', schema: '{ to, subject, body }' }),
+    tools: [['FUNC', 'facts.read', 'ledger (read-only)'], ['MCP', 'templates-mcp', 'http://templates:7010 · get_template'], ['LLM', 'openrouter', 'role=worker']],
+    calls: [['14:04:21', 'openrouter.complete(claude-haiku-4.5)', '503', '2.0s'], ['14:04:22', 'openrouter.complete(gpt-4.1-mini)', '200', '3.9s']],
+    container: 'ledger-worker-drafter-1', image: 'ledger/core:0.4', mem: '104 MB', host: 'worker-drafter',
+    logs: ['lease loop: waiting on queue:email.draft', 'heartbeat ok'],
+  },
+  mailer: {
+    name: 'Mailer', role: 'worker', st: ['planned', 'blocked on approval'], meta: 'email.send · no LLM',
+    tabs: ['Overview', 'Tools', 'Shell'],
+    desc: 'Sends only emails that have a committed approval fact. Deterministic, no model.',
+    metrics: [['0', 'sent'], ['8', 'queued'], ['—', 'p50']],
+    props: [['agent_id', 'worker-mailer'], ['skills', 'email.send'], ['model', 'none'], ['requires', 'fact:approval per email'], ['side_effects', 'true']],
+    tools: [['SMTP', 'mailpit', 'mailpit:1025'], ['FUNC', 'approval.check', 'facts:approval:*']],
+    calls: [['14:05:10', 'approval.check(stp_80)', '403', '1ms']],
+    container: 'ledger-worker-mailer-1', image: 'ledger/core:0.4', mem: '61 MB', host: 'worker-mailer',
+    logs: ['waiting: approval fact missing for stp_80'],
+  },
+  human: {
+    name: 'Human (you)', role: 'agent · human', st: ['input', '2 requests'], meta: 'approve · clarify',
+    tabs: ['Inbox', 'Overview'],
+    desc: 'You are just another agent on the bus, consulted last. Steps only reach queue:human when the meta-reviewer cannot decide with enough confidence. Your answer is committed as a fact and the waiting lane continues.',
+    metrics: [['2', 'open'], ['0', 'answered'], ['—', 'avg response']],
+    props: [['agent_id', 'human'], ['skills', 'approve, clarify'], ['queue', 'queue:human'], ['notify', 'GUI badge'], ['blocking', 'only dependent steps']],
+  },
+  meta: {
+    name: 'Meta-reviewer', role: 'resolves ambiguity', st: ['committed', '10 resolved · 1 escalated'], meta: 'claude-sonnet-4.5 · ≥ 0.80',
+    tabs: ['Overview', 'Prompt', 'Tools', 'Shell'],
+    desc: 'Reviews anything a worker or the verifier flags as ambiguous, and every step the playbook marks as needing approval. It decides automatically when its confidence clears the threshold; only below that does a step go to queue:human.',
+    metrics: [['10', 'auto-resolved'], ['1', 'escalated'], ['0.80', 'threshold']],
+    props: [['agent_id', 'meta-reviewer'], ['model', 'anthropic/claude-sonnet-4.5'], ['fallback', 'openai/gpt-4.1'], ['auto_threshold', '0.80'], ['email_auto_approve', 'judge ≥ 0.90 and no policy flags'], ['escalate_to', 'queue:human'], ['reads', 'facts, playbook, CRM REST (read-only)']],
+    prompt: 'You resolve ambiguity so humans do not have to.\nUse committed facts, the playbook and read-only CRM lookups.\nReturn a decision with a confidence and your evidence.\nIf confidence is below the threshold, escalate with the options and what you tried.',
+    inj: INJ('§ Dedupe · § Approval · § Escalation', { role: 'Decide or escalate; never act on external systems.', step: 'ambiguous: lead:9 Sam Ito → 2 accounts', hist: 'domain check inconclusive', schema: '{ decision, confidence, evidence[], options[] }' }),
+    tools: [['REST', 'espocrm REST', 'read-only · accounts, contacts, deals'], ['FUNC', 'playbook.rules', 'match escalation + approval rules'], ['LLM', 'judge', 'claude-sonnet-4.5 · email tone/policy'], ['MCP', 'enrichment-mcp', 'stdio · company_lookup (off)']],
+    calls: [['14:05:02', 'GET /Account?where[name]=Lumen', '200 · 2', '88ms'], ['14:05:03', 'GET /Contact?where[emailAddress]=*@lumen.io', '200 · 0', '74ms'], ['14:05:09', 'judge.email ×8 → min 0.94', '200', '6.1s']],
+    container: 'ledger-meta-reviewer-1', image: 'ledger/core:0.4', mem: '140 MB', host: 'meta-reviewer',
+    logs: ['ambiguity lead:7 → same person (0.91) · committed', 'approval stp_70..77 → auto (0.94)', 'ambiguity lead:9 → 0.52 < 0.80 · escalate'],
+  },
+  verifier: {
+    name: 'Verifier', role: 'commits facts', st: ['claimed', 'checking stp_22'], meta: 'gemini-2.5-flash · REST',
+    tabs: ['Overview', 'Prompt', 'Checks', 'Tools', 'Shell'],
+    desc: 'Never trusts a claim. Reads the world through a different channel from the one used to act (REST for the CRM, the API for Mailpit). Deterministic checks run first; the LLM judge only where no hard check exists.',
+    metrics: [['24', 'commits'], ['2', 'rejections'], ['640ms', 'p50']],
+    props: [['agent_id', 'verifier'], ['model', 'google/gemini-2.5-flash'], ['family', 'different from workers'], ['fallback', 'openai/gpt-4.1'], ['channel', 'REST / API only'], ['writes', 'verified · committed · facts']],
+    prompt: 'You are the verifier. You never trust a claim.\nRun the registered deterministic check first, via the REST API.\nUse the LLM judge only where no hard check exists, and record your reasoning.\nOnly you may commit a fact.',
+    inj: INJ('§ Definitions of done', { role: 'Verify postconditions; commit or reject with a reason.', step: 'claim stp_22 + postcondition crm.task_exists', hist: '—', schema: '{ verdict, reason, evidence }' }),
+    tools: [['REST', 'espocrm REST', 'http://espocrm/api/v1 · X-Api-Key'], ['REST', 'mailpit API', 'http://mailpit:8025/api/v1'], ['FUNC', 'postconditions.*', 'registry · 7 checks'], ['LLM', 'judge', 'gemini-2.5-flash · soft checks']],
+    calls: [['14:04:39', 'GET /Contact?where[emailAddress]=marcus.lee@acme.com', '200', '82ms'], ['14:03:04', 'GET /Contact?where[emailAddress]=dana@helixbio.com', '200 · 0', '77ms'], ['14:04:53', 'GET /Task?where[parentId]=3b07', '200', '91ms']],
+    container: 'ledger-verifier-1', image: 'ledger/core:0.4', mem: '128 MB', host: 'verifier',
+    logs: ['check crm.task_exists stp_22', 'REST 200 · 1 task · due 2026-10-07', 'commit stp_22 → facts', 'waiting on claims'],
+  },
+};
+// Workflow table rows (GET /agents enriched with current lease + heartbeat).
+// group drives the Role filter; attention = needs a look.
+const AGENT_ROWS = [
+  { id: 'orch', group: 'core', role: 'Planner', step: 'watching · 46 steps', model: 'claude-sonnet-4.5', hb: '1s', done: '6', rej: '—' },
+  { id: 'meta', group: 'core', role: 'Reviewer', step: 'escalated lead:9 → human', model: 'claude-sonnet-4.5', hb: '1s', done: '10', rej: '—' },
+  { id: 'verifier', group: 'core', role: 'Verifier', step: 'stp_22 crm.task_exists', model: 'gemini-2.5-flash', hb: '2s', done: '24', rej: '—' },
+  { id: 'parser', group: 'worker', role: 'Worker', step: '—', model: 'claude-haiku-4.5', hb: '3s', done: '1', rej: '0%' },
+  { id: 'b1', group: 'worker', role: 'Worker', step: 'dropped stp_41', model: 'claude-haiku-4.5', hb: '92s', done: '7', rej: '0%', attention: true, stale: true },
+  { id: 'b2', group: 'worker', role: 'Worker', step: 'stp_41 create_contact · t2', model: 'claude-haiku-4.5', hb: '1s', done: '9', rej: '10%' },
+  { id: 'drafter', group: 'worker', role: 'Worker', step: '—', model: 'gpt-4.1-mini (fallback)', hb: '2s', done: '8', rej: '0%' },
+  { id: 'mailer', group: 'worker', role: 'Worker', step: 'stp_80 waiting approval', model: 'none', hb: '4s', done: '0', rej: '—' },
+  { id: 'human', group: 'human', role: 'Human', step: 'queue:human', model: '—', hb: 'now', done: '0', rej: '—' },
+];
+// Step lanes: state per step kind [search, write, task, draft, send].
+const LANES = [
+  { name: 'Priya Raman', company: 'Northwind', email: 'priya@northwind.com', write: 'create', s: ['committed', 'committed', 'committed', 'committed', 'ready'], tries: 1, holder: 'mailer' },
+  { name: 'Marcus Lee', company: 'Acme Corp · existing', email: 'marcus.lee@acme.com', write: 'update', s: ['committed', 'committed', 'claimed', 'planned', 'planned'], tries: 1, holder: 'verifier' },
+  { name: 'Dana Okafor', company: 'Helix Bio', email: 'dana@helixbio.com', write: 'create', s: ['committed', 'leased', 'planned', 'planned', 'planned'], tries: 2, holder: 'b2', special: 'false_claim' },
+  { name: 'Tom Becker', company: 'Orbital Freight', email: 'tom.becker@orbitalfreight.com', write: 'create', s: ['committed', 'leased', 'planned', 'planned', 'planned'], tries: 2, holder: 'b2', special: 'takeover' },
+  { name: 'Lena Fischer', company: 'Kestrel Labs', email: 'lena@kestrel-labs.io', write: 'create', s: ['committed', 'committed', 'committed', 'committed', 'ready'], tries: 1, holder: 'mailer' },
+  { name: 'Hannah Cole', company: 'Fieldstone · existing', email: 'hannah@fieldstone.dev', write: 'update', s: ['committed', 'committed', 'committed', 'committed', 'ready'], tries: 1, holder: 'mailer' },
+  { name: 'Sam Ito', company: 'Lumen · escalated', email: 'sam@lumen.io', write: 'create', s: ['input', 'planned', 'planned', 'planned', 'planned'], tries: 1, holder: 'human', escalated: true },
+  { name: 'Jo Park', company: 'no email · skipped', email: '—', write: 'create', s: ['committed', 'skipped', 'skipped', 'skipped', 'skipped'], tries: 1, holder: 'meta' },
+];
+const LANE_KINDS = l => ['crm.search_contact', l.write === 'update' ? 'crm.update_contact' : 'crm.create_contact', 'crm.create_task', 'email.draft', 'email.send'];
+// Postcondition registry (01-architecture §8), per step kind.
+const POST = {
+  'goal.understand': ['Success criteria written to the ledger and non-empty.', { check: 'run.criteria_count', expect: { gte: 1 } }],
+  'plan.create': ['Every planned step has a registered postcondition.', { check: 'plan.postconditions_registered' }],
+  'file.parse': ['Normalised rows recorded; unusable rows flagged with a reason.', { check: 'file.parsed_rows', expect: { rows: 12 } }],
+  'crm.search_contact': ['Search outcome committed as a fact: match, none or ambiguous.', { check: 'facts.search_outcome' }],
+  'crm.create_contact': ['Contact exists in the CRM with this email exactly once, with the routed owner.', { check: 'crm.contact_exists', args: { email: '{email}' }, expect: { count: 1 } }],
+  'crm.update_contact': ['Existing contact has the new fields; no duplicate was created.', { check: 'crm.no_duplicate', args: { email: '{email}' }, expect: { count: 1 } }],
+  'crm.create_task': ['Task linked to the contact, due in 2 business days, owner per routing.', { check: 'crm.task_exists', expect: { due: '+2bd', linked: true } }],
+  'email.draft': ['Draft uses committed facts only and passes tone rules.', { check: 'email.draft_valid', judge: 'llm' }],
+  'email.send': ['Mailpit shows one message to this recipient, after an approval fact.', { check: 'email.sent', requires: 'fact:approval' }],
+  'review.approve_emails': ['An approval fact exists for every outgoing email.', { check: 'facts.approval', auto_threshold: 0.9 }],
+  'run.verify_criteria': ['Every success criterion is verified or waived.', { check: 'run.criteria_met' }],
+};
+const RECOVERIES = [
+  ['false claim', 'crm.create_contact (Dana) reported done without submitting.', 'Verifier found 0 records via REST and rejected; attempt 2 included the reason.', '0:38'],
+  ['worker died', 'Browser operator 1 killed while holding crm.create_contact (Tom).', 'Lease expired at 15s; operator 2 took over with token 2; no duplicate.', '0:24'],
+  ['session expired', 'CRM login page observed mid-step.', 'Operator re-authenticated and resumed the same step.', '0:11'],
+  ['model outage', 'Primary worker model returned 503.', 'model.fallback to gpt-4.1-mini; step committed.', '0:06'],
+];
+const CHAOS = [
+  ['false_claim', 'False claim', 'Next browser step reports success without acting', ['browser-op-2', 'step.claimed (fake)'], ['step.rejected', 'verifier · 0 records via REST → retry']],
+  ['kill', 'Kill worker', 'Terminate the browser operator holding a lease', ['fault.injected', 'SIGKILL worker-browser-2'], ['step.lease_expired', 'reaper → ready · fence +1 · takeover']],
+  ['session', 'Expire session', 'Invalidate the CRM login', ['fault.injected', 'CRM session invalidated'], ['session.renewed', 'browser-op-2 re-authenticated']],
+  ['outage', 'Model outage', 'Make the primary worker model fail', ['llm.error', 'claude-haiku-4.5 · 503'], ['model.fallback', 'worker → gpt-4.1-mini']],
+];
+const STATE_LABEL = { committed: 'committed', claimed: 'verifying', leased: 'leased', input: 'escalated', planned: 'planned', ready: 'ready', skipped: 'skipped', dead: 'dead', rejected: 'rejected' };
+// Auto-resolved items (audit trail). Real build: ledger events from meta-reviewer / supervisor.
+const AUTO = [
+  ['committed', '8 follow-up emails approved and queued', 'Tone judge min 0.94, no policy flags. Playbook § Approval allows auto at ≥ 0.90.', 'meta-reviewer'],
+  ['committed', 'Ben Ortiz matched to existing contact', 'Personal email, but phone + company match Benjamin Ortiz at Quarry Data (0.91).', 'meta-reviewer'],
+  ['committed', 'Jo Park skipped', 'No email; playbook skips phone-only rows unless the account is strategic (0.88).', 'meta-reviewer'],
+  ['leased', 'Browser operator 1 lost, work taken over', 'Lease expired, operator 2 continued with token 2. Container restarting.', 'supervisor'],
+  ['claimed', 'Primary worker model outage', 'Drafter fell back to gpt-4.1-mini; drafts passed verification.', 'llm router'],
+];
+const ESC_TRIED = ['Email domain lumen.io is used by both accounts', 'No prior contact, deal or owner history for sam@lumen.io', 'Event badge lists "Lumen", no division'];
+const ESC_OPTS = [['Lumen Inc', 'acc/12 · EMEA · 40 contacts'], ['Lumen Health', 'acc/31 · US · 6 contacts'], ['Skip this lead', 'log reason']];
+// ---- Meta-reviewer decisions (confidence drives escalation vs auto) ----
+const DECISIONS = [
+  { id: 'sam', kind: 'ambiguity', conf: 0.52, title: 'Sam Ito: which Lumen account?', desc: 'Row 9 · sam@lumen.io · "Lumen" matches two CRM accounts. Only this lane waits; the rest continues.',
+    tried: ['Email domain lumen.io is used by both accounts', 'No prior contact, deal or owner history for sam@lumen.io', 'Event badge lists "Lumen", no division'],
+    opts: [['Lumen Inc', 'acc/12 · EMEA · 40 contacts'], ['Lumen Health', 'acc/31 · US · 6 contacts'], ['Skip this lead', 'log reason']], autoPick: 'Lumen Inc',
+    autoTitle: c => `Sam Ito linked to ${c}`, autoWhy: 'Larger account, EMEA event (best guess).' },
+  { id: 'jo', kind: 'ambiguity', conf: 0.88, title: 'Jo Park: phone-only lead', desc: 'Row 11 has no email. Playbook allows phone-only contacts only for strategic accounts.',
+    tried: ['No email in the row', 'No company match in the CRM', 'Playbook § Dedupe: skip phone-only unless strategic'],
+    opts: [['Skip', 'log reason'], ['Create (phone only)', 'no follow-up email']], autoPick: 'Skip',
+    autoTitle: c => c === 'Skip' ? 'Jo Park skipped' : 'Jo Park created (phone only)', autoWhy: 'No email; playbook skips phone-only rows unless strategic.' },
+  { id: 'ben', kind: 'ambiguity', conf: 0.91, title: 'Ben Ortiz: same person as Benjamin Ortiz?', desc: 'Row 7 uses a personal email. Name, phone and company match an existing contact.',
+    tried: ['Name similarity 0.86', 'Phone matches +1 415 555 0119', 'Company Quarry Data matches'],
+    opts: [['Same person', 'enrich con/88'], ['New contact', 'creates a second record'], ['Skip', 'log reason']], autoPick: 'Same person',
+    autoTitle: c => c === 'Same person' ? 'Ben Ortiz matched to existing contact' : `Ben Ortiz: ${c}`, autoWhy: 'Phone + company match Benjamin Ortiz at Quarry Data.' },
+  { id: 'emails', kind: 'approval', conf: 0.94, title: '8 follow-up emails ready to send', desc: 'Drafts passed rules; the tone judge scored them. Mailer waits for an approval fact.',
+    tried: ['Merge fields complete, no placeholders', 'Judge min 0.94 across 8 drafts', 'No policy flags (pricing, promises, attachments)'],
+    opts: [['Approve all 8', 'send now'], ['Hold all', 'drafter revises']], autoPick: 'Approve all 8',
+    autoTitle: c => c === 'Approve all 8' ? '8 follow-up emails approved' : 'Follow-up emails held', autoWhy: 'Tone judge min 0.94, no policy flags.' },
+];
+// ---- Run controls (defaults = playbook/env defaults) ----
+const CTRL_DEFAULTS = { reviewTh: 80, emailTh: 90, humanEmail: false, judge: true, fuzzy: 85, leaseTtl: 15, maxAttempts: 3, checkThenAct: true, replan: true, fallback: true, concurrency: 2, writePath: 'browser', dryRun: false, budget: 200 };
+// ---- Report data ----
+const LEADS12 = [
+  [1, 'Priya Raman', 'Northwind', 'priya@northwind.com', 'created', 'a.chen', 'Oct 7', 0, 'browser-op-1', 'crm.contact_exists ✓', 1],
+  [2, 'Marcus Lee', 'Acme Corp', 'marcus.lee@acme.com', 'updated', 'r.silva', 'Oct 7', 6, 'browser-op-1', 'exact match (email casing) · no_duplicate ✓', 1],
+  [3, 'Lena Fischer', 'Kestrel Labs', 'lena@kestrel-labs.io', 'created', 'r.silva', 'Oct 7', 3, 'browser-op-2', 'crm.contact_exists ✓', 1],
+  [4, 'Dana Okafor', 'Helix Bio', 'dana@helixbio.com', 'created', 'a.chen', 'Oct 7', 1, 'browser-op-2', 'rejected once (false claim) → ✓ on attempt 2', 2],
+  [5, 'Tom Becker', 'Orbital Freight', 'tom.becker@orbitalfreight.com', 'created', 'r.silva', 'Oct 7', 2, 'browser-op-2 (takeover)', 'lease takeover · no_duplicate ✓', 2],
+  [6, 'Lena Fischer', 'Kestrel Labs', 'lena@kestrel-labs.io', 'skipped', '—', '—', -1, 'parser', 'duplicate of row 3 in the file', 1],
+  [7, 'Ben Ortiz', 'Quarry Data', 'ben.ortiz@gmail.com', 'ben', 'a.chen', 'Oct 7', -2, 'meta-reviewer', 'fuzzy match 0.91 · no_duplicate ✓', 1],
+  [8, 'Hannah Cole', 'Fieldstone', 'hannah@fieldstone.dev', 'updated', 'a.chen', 'Oct 7', 7, 'browser-op-1', 'exact match (email casing) · no_duplicate ✓', 1],
+  [9, 'Sam Ito', 'Lumen', 'sam@lumen.io', 'sam', '—', '—', -1, 'meta-reviewer', '', 1],
+  [10, 'Omar Haddad', 'Brightline', 'omar@brightline.co', 'created', 'a.chen', 'Oct 7', 4, 'browser-op-2', 'crm.contact_exists ✓', 1],
+  [11, 'Jo Park', '—', '+1 415 555 0182', 'jo', '—', '—', -1, 'meta-reviewer', '', 1],
+  [12, 'Grace Wu', 'Tallgrass', 'grace.wu@tallgrass.com', 'created', 'r.silva', 'Oct 7', 5, 'browser-op-2', 'crm.contact_exists ✓', 1],
+];
+const JUDGE = [0.96, 0.95, 0.94, 0.97, 0.95, 0.96, 0.94, 0.95];
+const PHASES = [
+  ['Understand + plan', 'orchestrator', 0, 19], ['Parse file', 'parser', 19, 24], ['Search contacts ×12', 'browser-op-1, -2', 24, 92],
+  ['Create / update ×9', 'browser-op-1, -2', 40, 178], ['Follow-up tasks ×9', 'browser-op-2', 120, 236], ['Review ambiguity ×3', 'meta-reviewer', 178, 186],
+  ['Waiting on you', 'human', 186, null], ['Draft emails ×8', 'drafter', 190, 244], ['Approve emails', 'meta-reviewer', 244, 250],
+  ['Send emails', 'mailer', 250, 268], ['Final verification', 'verifier', 268, 286],
+];
+const MARKS = [[52, 'false claim', '0:52 false claim'], [90, 'kill', '1:30 worker killed'], [150, 'session', '2:30 session expired'], [214, 'outage', '3:34 model outage']];
+const COVERAGE = [['file.parsed_rows', 'source file', 1, 1, 0, '12ms'], ['crm.contact_exists', 'CRM REST', 10, 9, 1, '81ms'], ['crm.no_duplicate', 'CRM REST', 9, 9, 0, '77ms'], ['crm.task_exists', 'CRM REST', 9, 9, 0, '91ms'], ['email.draft_valid', 'rules + LLM judge', 8, 8, 0, '1.2s'], ['email.sent', 'Mailpit API', 8, 8, 0, '40ms'], ['run.criteria_met', 'ledger sweep', 1, 1, 0, '—']];
+const AGENT_PERF = [['Orchestrator', 'claude-sonnet-4.5', 6, 0, 0, '1.8s', '96k', '$0.29'], ['Parser', 'claude-haiku-4.5', 1, 0, 0, '2.1s', '8k', '$0.01'], ['Browser operator 1', 'claude-haiku-4.5 · lost', 7, 0, 0, '3.1s', '64k', '$0.05'], ['Browser operator 2', 'claude-haiku-4.5', 12, 1, 1, '3.4s', '88k', '$0.07'], ['Drafter', 'haiku-4.5 → gpt-4.1-mini', 8, 0, 0, '4.2s', '22k', '$0.01'], ['Mailer', 'no LLM', 8, 0, 0, '0.2s', '—', '—'], ['Meta-reviewer', 'claude-sonnet-4.5', 4, 0, 0, '2.4s', '61k', '$0.21'], ['Verifier', 'gemini-2.5-flash', 47, 2, 0, '0.6s', '73k', '$0.04'], ['LLM judge', 'claude-sonnet-4.5', 8, 0, 0, '0.8s', '44k', '$0.15']];
+const DATA_Q = [['12', 'rows in file', '4 header names mapped'], ['10', 'usable rows', '2 flagged with reason'], ['3', 'emails lowercased', 'MARCUS.LEE@ACME.COM'], ['7', 'phones → E.164', '(415) 555-0119 → +14155550119'], ['5', 'fields trimmed', 'stray whitespace'], ['1', 'duplicate in file', 'row 6 = row 3'], ['1', 'no email', 'row 11 · phone only'], ['3', 'matched existing', '2 exact · 1 fuzzy']];
+const CHECKS = [['file.parsed_rows', 'source file', '1'], ['crm.contact_exists', 'CRM REST', '9'], ['crm.no_duplicate', 'CRM REST', '9'], ['crm.task_exists', 'CRM REST', '3'], ['email.draft_valid', 'rules + LLM judge', '8'], ['email.sent', 'Mailpit API', '0'], ['run.criteria_met', 'ledger sweep', '0']];
+const STREAMS = [['ledger:events', 'stream', '1,284'], ['run:run_7f3a', 'hash', '6 fields'], ['run:run_7f3a:steps', 'list', '46'], ['facts:run_7f3a', 'hash', '46'], ['queue:browser.espocrm', 'stream', '4 pending'], ['queue:email.draft', 'stream', '0 pending'], ['queue:human', 'stream', '2 pending'], ['lease:stp_41', 'string', 'ttl 9.8s'], ['fence:stp_41', 'counter', '2'], ['approvals:pending', 'set', '2']];
+const PLAYBOOK = [
+  ['Dedupe rules', 'Match on email (case-insensitive), then fuzzy name + company ≥ 0.85. Never create a second contact for a match; enrich instead.', 'browser, parser'],
+  ['Owner routing', 'EMEA or companies under 200 people → r.silva. Everyone else → a.chen.', 'browser'],
+  ['Follow-up policy', 'Task due in 2 business days. One email per lead: warm, under 150 words, one clear ask.', 'drafter'],
+  ['Approval policy', 'Any external email requires approval. Batch approvals per run.', 'orchestrator'],
+  ['Escalation rules', 'Ambiguous account matches: ask, batching all rows into one question.', 'orchestrator'],
+  ['Definitions of done', 'Every usable row is a contact with an owner and a task, verified through the CRM API.', 'verifier'],
+];
+
+const CRITERIA = [['✓', 'committed', 'Every usable row is a CRM contact exactly once'], ['✓', 'committed', 'Existing contacts enriched, not duplicated'], ['○', 'idle', 'Follow-up task due in 2 business days'], ['○', 'idle', 'Owner assigned per routing rules'], ['–', 'planned', 'Phone-only rows skipped with a reason'], ['○', 'idle', 'Emails sent only after approval']];
+const RUNS = [['run_7f3a', "Add the leads from yesterday's event to the CRM and set up follow-ups.", 'running', '04:12', '31 / 46'], ['run_6c21', 'Import webinar signups and assign owners by region.', 'completed', '06:48', '28 / 28'], ['run_5b90', 'Add booth leads from the summit to the CRM.', 'completed', '09:02', '38 / 38'], ['run_5a11', 'Update renewal dates from the finance sheet.', 'failed', '02:15', '7 / 19']];
+const RUN_C = { running: 'var(--s-leased)', completed: 'var(--s-committed)', failed: 'var(--s-rejected)' };
+
+// Live ledger: seed + a pool cycled in to simulate the SSE stream.
+const EV_TYPE_C = t => /rejected|lost|killed|error|outage/.test(t) ? 'var(--s-rejected)' : /committed/.test(t) ? 'var(--s-committed)' : /claimed/.test(t) ? 'var(--s-claimed)' : /input/.test(t) ? 'var(--s-input)' : /leased|lease/.test(t) ? 'var(--s-leased)' : 'var(--fg)';
+const SEED_EVENTS = [['14:04:00', 'step.lease_expired', 'stp_41 · token 1'], ['14:04:01', 'step.leased', 'stp_41 → browser-op-2 · token 2'], ['14:04:22', 'model.fallback', 'drafter → gpt-4.1-mini'], ['14:04:40', 'step.committed', 'update_contact · Marcus Lee'], ['14:04:52', 'step.claimed', 'create_task · Marcus Lee'], ['14:05:03', 'input.requested', '3 rows need a decision'], ['14:05:10', 'input.requested', '8 emails await approval']];
+const POOL_EVENTS = [['step.heartbeat', 'browser-op-2 · stp_41 ttl 15s'], ['step.observation', 'stp_41 · form saved'], ['step.claimed', 'stp_41 create_contact'], ['step.committed', 'stp_22 crm.task_exists ✓'], ['fact.committed', 'lead:2.task = crm/Task/9d10'], ['step.leased', 'stp_42 → browser-op-2'], ['step.committed', 'stp_41 crm.contact_exists ✓']];
+
+const CLAR = [
+  { id: 'r9', name: 'Sam Ito', src: 'row 9', why: 'Company matches two accounts: Lumen Inc, Lumen Health.', opts: ['Lumen Inc', 'Lumen Health', 'Skip'] },
+  { id: 'r7', name: 'Ben Ortiz', src: 'row 7', why: 'Personal email; matches Benjamin Ortiz at Quarry Data (0.86).', opts: ['Same person', 'New', 'Skip'] },
+  { id: 'r11', name: 'Jo Park', src: 'row 11', why: 'No email. Phone-only allowed if you say so.', opts: ['Create', 'Skip'] },
+];
+const EMAILS = [['priya@northwind.com', 'Priya', 'Northwind'], ['dana@helixbio.com', 'Dana', 'Helix Bio'], ['tom.becker@orbitalfreight.com', 'Tom', 'Orbital Freight'], ['lena@kestrel-labs.io', 'Lena', 'Kestrel Labs'], ['omar@brightline.co', 'Omar', 'Brightline'], ['grace.wu@tallgrass.com', 'Grace', 'Tallgrass'], ['marcus.lee@acme.com', 'Marcus', 'Acme Corp'], ['hannah@fieldstone.dev', 'Hannah', 'Fieldstone']]
+  .map(([to, f, co], i) => ({ id: 'm' + i, to, subject: `Good to meet you at Signal Summit, ${f}`, body: `Hi ${f},\n\nThanks for stopping by yesterday. You mentioned ${co} wants to cut manual CRM work. Happy to show you what we've built.\n\nDoes 20 minutes on Thursday work?\n\nBest,\nAlex` }));
+
+const TOOL_C = { MCP: 'var(--s-input)', REST: 'var(--s-leased)', FUNC: 'var(--fg2)', BROWSER: 'var(--s-claimed)', LLM: 'var(--s-committed)', SMTP: 'var(--s-ready)' };
+const T_OUT = '#C9CBCF', T_DIM = '#6E737C', T_ERR = '#F08A7E', T_CMD = '#E7E8EA';
+
+class Component extends DCLogic {
+  state = {
+    view: 'dashboard', b1Restarted: false, lostDismissed: false,
+    step: null,                 // { lane, idx } | { plan: i } | { conv: i } for the step drawer
+    det: 80, seed: true,        // determinism 0..100, pinned seed
+    ctrl: { ...CTRL_DEFAULTS },  // run controls
+    answers: {}, picks: {},      // escalation answers / current radio picks per decision id
+    repFilter: 'all',
+    chaosLast: {}, promptVer: {}, promptDirty: {}, promptKey: 0,
+    theme: 'light', elapsed: 252, wfTab: 'agents', q: '', wfFilter: 'all', events: SEED_EVENTS, poolIdx: 0,
+    open: null, tab: null,
+    injOff: {},            // `${agent}.${layer}` → true when disabled
+    toolOff: { 'b1.espocrm REST': true, 'b2.espocrm REST': true },
+    extraTools: {},        // agent → added tools
+    shell: {},             // agent → lines
+    shellInput: '', follow: false, cpu: 3,
+    clarDone: false, approveDone: true, escChoice: null, saveRule: true,
+    choices: { r9: null }, approved: Object.fromEntries(EMAILS.map(m => [m.id, true])), openEmail: null,
+  };
+  termRef = React.createRef();
+  scrollRef = React.createRef();
+  // Browser operator 1 is dead until the user restarts it from "Needs your attention".
+  isDead(id) { return !!AGENTS[id].dead && !(id === 'b1' && this.state.b1Restarted); }
+  shellRef = React.createRef();
+
+  componentDidMount() {
+    const saved = (() => { try { return localStorage.getItem('ledger.theme'); } catch (e) { return null; } })();
+    this.setState({ theme: saved || this.props.defaultTheme || 'light' });
+    this.clock = setInterval(() => this.setState(s => ({ elapsed: s.elapsed + 1, cpu: 2 + Math.round(Math.random() * 9) })), 1000);
+    // Simulated SSE: append a ledger event every few seconds.
+    this.feed = setInterval(() => {
+      if (!(this.props.liveFeed ?? true)) return;
+      this.setState(s => {
+        const [type, payload] = POOL_EVENTS[s.poolIdx % POOL_EVENTS.length];
+        const t = new Date(Date.UTC(2026, 9, 3, 14, 5, 10) + (s.elapsed - 252) * 1000).toISOString().slice(11, 19);
+        return { events: [...s.events, [t, type, payload]].slice(-8), poolIdx: s.poolIdx + 1 };
+      });
+    }, 3500);
+    // Follow-logs tail in the shell.
+    this.tail = setInterval(() => {
+      const { open, tab, follow } = this.state;
+      if (!follow || tab !== 'Shell' || !open || this.isDead(open)) return;
+      const pool = AGENTS[open].logs || [];
+      if (pool.length) this.print(open, [[`${new Date().toTimeString().slice(0, 8)} ${pool[Math.floor(Math.random() * pool.length)]}`, T_DIM]]);
+    }, 1800);
+    this.onKey = e => { if (e.key === 'Escape') this.setState({ open: null, step: null }); };
+    window.addEventListener('keydown', this.onKey);
+    this.applyTheme();
+  }
+  componentWillUnmount() { clearInterval(this.clock); clearInterval(this.feed); clearInterval(this.tail); window.removeEventListener('keydown', this.onKey); }
+  componentDidUpdate() {
+    this.applyTheme();
+    const el = this.termRef.current;
+    const n = this.state.open && (this.state.shell[this.state.open] || []).length;
+    if (el && n !== this._termN) { this._termN = n; el.scrollTop = el.scrollHeight; }
+  }
+  applyTheme() {
+    if (document.documentElement.dataset.theme !== this.state.theme) document.documentElement.dataset.theme = this.state.theme;
+  }
+  toggleTheme = () => {
+    const theme = this.state.theme === 'light' ? 'dark' : 'light';
+    try { localStorage.setItem('ledger.theme', theme); } catch (e) {}
+    this.setState({ theme });
+  };
+
+  openAgent = (id, tab) => {
+    const a = AGENTS[id];
+    if (!this.state.shell[id]) this.setState(s => ({ shell: { ...s.shell, [id]: this.shellBanner(id) } }));
+    this.setState({ open: id, tab: tab || a.tabs[0], shellInput: '', step: null });
+    if ((tab || a.tabs[0]) === 'Shell') this.emit('shell.opened', `${id} · sandboxed exec`);
+  };
+  shellBanner(id) {
+    const a = AGENTS[id];
+    if (!a.container) return [];
+    if (this.isDead(id)) return [[`Error response from daemon: container ${a.container} is not running`, T_ERR], ['exit code 137 (SIGKILL) · restart policy: on-failure', T_DIM]];
+    return [[`attached to ${a.container} (${a.image})`, T_DIM], ['type "help" for commands', T_DIM]];
+  }
+  print(id, lines) { this.setState(s => ({ shell: { ...s.shell, [id]: [...(s.shell[id] || []), ...lines].slice(-300) } })); }
+
+  // Mock command interpreter. Real build: forward to WS /agents/{id}/exec.
+  runCmd(id, raw) {
+    const a = AGENTS[id], cmd = raw.trim(), out = [[`${this.promptStr(id)} ${cmd}`, T_CMD]];
+    const [c0, ...args] = cmd.split(/\s+/);
+    if (this.isDead(id)) out.push(['container not running · use "docker start" from the host', T_ERR]);
+    else if (!cmd) {}
+    else if (c0 === 'help') out.push(['help  ps  env  ls  tail  tools  whoami  clear' + (id === 'ledger' ? '  redis-cli <cmd>' : ''), T_OUT]);
+    else if (c0 === 'clear') { this.setState(s => ({ shell: { ...s.shell, [id]: [] } })); return; }
+    else if (c0 === 'whoami') out.push([a.props.find(p => p[0] === 'agent_id')?.[1] || a.host, T_OUT]);
+    else if (c0 === 'ps') out.push(['PID  CMD', T_DIM], ['1    python -m ledger_core.' + (a.host || id).replace(/-/g, '_'), T_OUT], ['14   heartbeat --every 5s', T_OUT], ...(id.startsWith('b') ? [['22   chromium --headless', T_OUT]] : []));
+    else if (c0 === 'env') out.push(['AGENT_ID=' + a.host, T_OUT], ['REDIS_URL=redis://redis:6379/0', T_OUT], ['OPENROUTER_API_KEY=sk-or-••••••••', T_OUT], ['MODEL_ROLE=' + (id === 'orch' ? 'orchestrator' : id === 'verifier' ? 'verifier' : 'worker'), T_OUT]);
+    else if (c0 === 'ls') out.push([id.startsWith('b') ? 'browser_worker/  evidence/  storage_state.json' : 'ledger_core/  prompts/  playbooks/  pyproject.toml', T_OUT]);
+    else if (c0 === 'tail') (a.logs || []).forEach(l => out.push([l, T_DIM]));
+    else if (c0 === 'tools') (a.tools || []).forEach(t => out.push([`${t[0].padEnd(8)} ${t[1].padEnd(22)} ${t[2]}`, T_OUT]));
+    else if (c0 === 'redis-cli' && id === 'ledger') {
+      const q = args.join(' ').toUpperCase();
+      out.push([q.startsWith('XLEN') ? '(integer) 1284' : q.startsWith('GET FENCE') ? '"2"' : q.startsWith('TTL') ? '(integer) 9' : q.startsWith('PING') ? 'PONG' : 'OK', T_OUT]);
+    } else out.push([`sh: ${c0}: command not found`, T_ERR]);
+    this.print(id, out);
+  }
+  promptStr(id) { return `root@${AGENTS[id].host || id}:/app#`; }
+
+  answerDone(key) { this.setState({ [key]: true }); }
+
+  // Append an event to the live ledger strip (stand-in for POST → SSE echo).
+  emit(type, payload) {
+    const t = new Date(Date.UTC(2026, 9, 3, 14, 5, 10) + (this.state.elapsed - 252) * 1000).toISOString().slice(11, 19);
+    this.setState(s => ({ events: [...s.events, [t, type, payload]].slice(-10) }));
+  }
+  fire(c) {
+    const [key, label, , ev, rec] = c;
+    this.emit(ev[0], ev[1]);
+    this.setState(s => ({ chaosLast: { ...s.chaosLast, [key]: 'fired · recovering…' } }));
+    setTimeout(() => { this.emit(rec[0], rec[1]); this.setState(s => ({ chaosLast: { ...s.chaosLast, [key]: `recovered · ${rec[0]}` } })); }, 1600);
+  }
+
+  // Lanes reflect the escalation outcome.
+  lanes() {
+    const s = this.state;
+    const sam = this.decisionState().find(d => d.id === 'sam');
+    return LANES.map(l => l.escalated && sam.choice
+      ? { ...l, company: `Lumen · ${sam.choice}`, s: sam.choice === 'Skip this lead' ? ['committed', 'skipped', 'skipped', 'skipped', 'skipped'] : ['committed', 'ready', 'planned', 'planned', 'planned'], holder: 'b2' }
+      : l);
+  }
+  // Resolve each decision against current thresholds / policies / answers.
+  decisionState() {
+    const s = this.state, c = s.ctrl;
+    return DECISIONS.map(d => {
+      const th = (d.kind === 'approval' ? c.emailTh : c.reviewTh) / 100;
+      const forced = d.kind === 'approval' && (c.humanEmail || !c.judge);
+      const answered = s.answers[d.id];
+      const auto = !forced && d.conf >= th;
+      const choice = answered || (auto ? d.autoPick : null);
+      const reason = forced ? (c.humanEmail ? 'policy: human approves external email' : 'LLM judge off: no confidence score') : `confidence ${d.conf.toFixed(2)} ${auto ? '≥' : '<'} ${th.toFixed(2)}`;
+      return { ...d, th, forced, auto, answered, choice, escalated: !choice, reason, by: answered ? 'you' : auto ? 'meta-reviewer' : '—' };
+    });
+  }
+  // Build the step drawer content from a node reference.
+  stepDetail(ref) {
+    const lanes = this.lanes();
+    let kind, state, lead = 'run', email = '', agent = null, special = null, attempt = 1, idx = 0;
+    if (ref.plan != null) { kind = ['goal.understand', 'plan.create', 'file.parse'][ref.plan]; state = 'committed'; agent = ref.plan === 2 ? 'parser' : 'orchestrator'; }
+    else if (ref.conv != null) { kind = ['review.approve_emails', 'run.verify_criteria'][ref.conv]; state = ref.conv === 0 ? 'committed' : 'planned'; agent = ref.conv === 0 ? 'meta-reviewer' : null; }
+    else {
+      const l = lanes[ref.lane]; idx = ref.idx; kind = LANE_KINDS(l)[idx]; state = l.s[idx]; lead = `${l.name} · ${l.company}`; email = l.email;
+      agent = state === 'input' ? 'human' : state === 'skipped' ? 'meta-reviewer' : idx === 3 ? 'drafter' : idx === 4 ? 'mailer' : idx === 1 && l.tries > 1 ? 'browser-op-2' : 'browser-op-1';
+      if (idx === 1 && l.special) { special = l.special; attempt = 2; }
+    }
+    const [post, json] = POST[kind] || ['—', {}];
+    const isBrowser = kind.startsWith('crm.');
+    const att = [];
+    const model = agent === 'mailer' ? '— (no LLM)' : agent === 'drafter' ? 'gpt-4.1-mini (fallback)' : agent === 'meta-reviewer' ? 'claude-sonnet-4.5' : agent === 'orchestrator' ? 'claude-sonnet-4.5' : 'claude-haiku-4.5';
+    if (special === 'false_claim') att.push({ n: 1, worker: 'browser-op-2', strike: 'none', model, obs: 'No form submit observed (fault: false claim injected).', claim: 'done · "contact created"', verdict: 'rejected', vc: 'var(--s-rejected)', reason: `REST: 0 contacts with ${email}`, shots: true });
+    if (special === 'takeover') att.push({ n: 1, worker: 'browser-op-1', strike: 'line-through', model, obs: 'Filled the Create Contact form, then the container died.', claim: '— (heartbeat lost)', verdict: 'lease expired', vc: 'var(--s-dead)', reason: 'Token 1 fenced out; any late write is rejected.', shots: true });
+    if (!['planned', 'ready'].includes(state)) {
+      const V = {
+        committed: ['verified · committed', 'var(--s-committed)', `${json.check || 'check'} passed`],
+        claimed: ['verifying…', 'var(--s-claimed)', 'Verifier is reading the CRM over REST'],
+        leased: ['pending', 'var(--s-leased)', special ? (special === 'takeover' ? 'Check-then-act: no existing contact → creating' : 'Prompt included the rejection reason') : 'Worker holds the lease'],
+        input: ['escalated', 'var(--s-input)', 'Meta-reviewer confidence 0.52 < 0.80. Waiting on you.'],
+        skipped: ['skipped', 'var(--fg3)', 'Meta-reviewer: no email, playbook § Dedupe (0.88)'],
+      }[state];
+      att.push({ n: attempt, worker: agent, strike: 'none', model,
+        obs: state === 'input' ? 'Found 2 accounts named "Lumen"; shared domain lumen.io.' : state === 'skipped' ? 'Row has phone only.' : state === 'leased' ? 'Working…' : kind === 'review.approve_emails' ? '8 drafts scored by judge, min 0.94; no policy flags.' : 'Action completed; detail view shows the saved record.',
+        claim: state === 'leased' ? '— (in progress)' : state === 'input' || state === 'skipped' ? '—' : 'done', verdict: V[0], vc: V[1], reason: V[2], shots: isBrowser && state !== 'input' });
+    }
+    const S = { committed: 'committed', claimed: 'claimed · verifying', leased: 'leased', input: 'escalated to you', planned: 'planned', ready: 'ready', skipped: 'skipped' };
+    return {
+      id: `stp_${ref.plan != null ? '0' + (ref.plan + 1) : ref.conv != null ? '9' + ref.conv : (ref.lane + 1) + '' + idx}`, kind, lead, c: SC[state], label: S[state],
+      inputs: [{ k: 'lead', v: lead }, { k: 'email', v: email || '—' }, { k: 'skill', v: isBrowser ? 'browser.espocrm' : kind.split('.')[0] }, { k: 'idempotency_key', v: `${kind}:${email || 'run'}` }],
+      post, json: JSON.stringify(json, null, 2).replace('{email}', email), attempts: att,
+      noAttempts: att.length === 0, waiting: state === 'ready' ? 'Ready. Waiting for a worker to lease it.' : 'Not started. Waiting on earlier steps.',
+    };
+  }
+  reportMarkdown(v) {
+    const lines = ['# Evidence report · run_7f3a', '', v.reportSummary, '', '## Criteria'];
+    v.reportCriteria.forEach(c => lines.push(`- [${c.verdict}] ${c.text} — ${c.how}`));
+    if (v.leads) { lines.push('', '## Every row'); v.leads.forEach(l => lines.push(`- #${l.n} ${l.name} (${l.company}) · ${l.outcome} · owner ${l.owner} · email ${l.emailSt} · ${l.by} · ${l.check}`)); }
+    if (v.decisions) { lines.push('', '## Decisions'); v.decisions.forEach(d => lines.push(`- ${d.title}: ${d.result} (${d.confLabel})`)); }
+    lines.push('', '## Recoveries'); RECOVERIES.forEach(r => lines.push(`- ${r[0]}: ${r[2]} (${r[3]})`));
+    return lines.join('\n');
+  }
+
+  renderVals() {
+    const s = this.state;
+    const mm = String(Math.floor(s.elapsed / 60)).padStart(2, '0'), ss = String(s.elapsed % 60).padStart(2, '0');
+    const decs = this.decisionState();
+    const needsList = decs.filter(d => d.escalated).map(d => ({ kind: 'Escalated', title: d.title, meta: d.reason, open: () => this.openAgent('human', 'Inbox') }));
+    const box = id => {
+      const a = AGENTS[id];
+      let st = a.st;
+      if (id === 'b1' && s.b1Restarted) st = ['idle', 'restarted · idle'];
+      if (id === 'human') st = needsList.length ? ['input', `${needsList.length} escalation${needsList.length > 1 ? 's' : ''}`] : ['idle', 'all clear'];
+      if (id === 'meta') st = needsList.length ? ['committed', `${decs.filter(d => d.auto).length} auto · ${needsList.length} escalated`] : ['committed', `${decs.filter(d => d.auto).length} auto · 0 open`];
+      return { name: a.name, role: a.role, status: st[1], c: SC[st[0]], meta: a.meta, open: () => this.openAgent(id) };
+    };
+
+    // ---- sheet ----
+    const id = s.open, a = id ? AGENTS[id] : null;
+    let ag = { metrics: [], props: [], calls: [] }, tabs = [], injections = [], tools = [], tokTotal = 0;
+    if (a) {
+      const hb = box(id);
+      ag = {
+        id, name: a.name, role: a.role, status: hb.status, c: hb.c, desc: a.desc, prompt: a.prompt || '',
+        metrics: a.metrics.map(([v, k]) => ({ v, k })), props: a.props.map(([k, v]) => ({ k, v })),
+        calls: (a.calls || []).map(([t, call, code, ms]) => ({ t, call, code, ms, c: /^2/.test(code) ? 'var(--s-committed)' : 'var(--s-rejected)' })),
+        container: a.container, image: a.image, mem: a.mem, promptStr: this.promptStr(id), shellDot: this.isDead(id) ? 'var(--s-dead)' : 'var(--s-committed)',
+      };
+      tabs = a.tabs.map(t => ({ label: t, fg: s.tab === t ? 'var(--fg)' : 'var(--fg3)', bar: s.tab === t ? 'var(--fg)' : 'transparent', pick: () => { this.setState({ tab: t }); if (t === 'Shell' && s.tab !== 'Shell') this.emit('shell.opened', `${id} · sandboxed exec`); } }));
+      injections = (a.inj || []).map((l, i) => {
+        const key = `${id}.${l.id}`, on = !s.injOff[key];
+        if (on) tokTotal += l.tok;
+        const locked = l.id === 'history' || l.id === 'role';
+        return { ...l, n: String(i + 1), tok: l.tok + ' tok', op: on ? 1 : 0.45, ...toggleVals(on), cursor: locked ? 'not-allowed' : 'pointer', lockOp: locked ? 0.5 : 1,
+          lockNote: locked ? (l.id === 'history' ? ' · locked (D3: rejections must feed the next attempt)' : ' · locked') : '',
+          toggle: () => { if (locked) return; this.setState(p => ({ injOff: { ...p.injOff, [key]: !p.injOff[key] } })); this.emit('prompt.updated', `${id} layer "${l.id}" ${on ? 'off' : 'on'}`); } };
+      });
+      tools = [...(a.tools || []), ...(s.extraTools[id] || [])].map(([type, name, target, note]) => {
+        const key = `${id}.${name}`, on = !s.toolOff[key];
+        return { type, name, target, note: note || null, tc: TOOL_C[type] || 'var(--fg2)', op: on ? 1 : 0.55, ...toggleVals(on), toggle: () => { this.setState(p => ({ toolOff: { ...p.toolOff, [key]: !p.toolOff[key] } })); this.emit('tool.toggled', `${id} · ${name} ${on ? 'off' : 'on'}`); } };
+      });
+    }
+    const addTool = row => () => this.setState(p => ({ extraTools: { ...p.extraTools, [id]: [...(p.extraTools[id] || []), row(((p.extraTools[id] || []).length) + 1)] } }));
+
+    // ---- workflow tables ----
+    const q = s.q.trim().toLowerCase();
+    const isAgents = s.wfTab === 'agents';
+    const agentFilters = [['all', 'All'], ['core', 'Core'], ['worker', 'Workers'], ['attention', 'Needs attention']];
+    const stepFilters = [['all', 'All'], ['active', 'In flight'], ['input', 'Waiting on you'], ['done', 'Done']];
+    const agentMatch = (r, f) => f === 'all' || (f === 'attention' ? ((r.attention && this.isDead(r.id)) || (r.id === 'human' && needsList.length)) : r.group === f);
+    const laneMatch = (l, f) => f === 'all' || (f === 'input' ? l.s.includes('input') : f === 'done' ? l.s.slice(0, 4).every(x => x === 'committed' || x === 'skipped') : l.s.some(x => x === 'leased' || x === 'claimed'));
+    const agentsAll = AGENT_ROWS.filter(r => !q || (AGENTS[r.id].name + r.id + r.step + r.model).toLowerCase().includes(q));
+    const lanesAll = this.lanes().filter(l => !q || (l.name + l.company).toLowerCase().includes(q));
+    const agentRowsF = agentsAll.filter(r => agentMatch(r, s.wfFilter));
+    const lanesF = lanesAll.filter(l => laneMatch(l, s.wfFilter));
+    const curFilters = isAgents ? agentFilters : stepFilters;
+    const agentRows = agentRowsF.map(r => {
+      const a0 = AGENTS[r.id], bx = box(r.id);
+      return {
+        name: a0.name, aid: a0.props.find(p => p[0] === 'agent_id')?.[1] || r.id, role: r.role,
+        initials: a0.name.split(/[\s(]+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase(),
+        state: r.id === 'human' ? bx.status : ({ idle: 'idle', leased: 'active', claimed: 'verifying', committed: 'healthy', input: 'input req.', dead: 'lost', planned: 'blocked' })[(r.id === 'human' ? 'input' : r.id === 'b1' && s.b1Restarted ? 'idle' : a0.st[0])],
+        c: bx.c, step: r.step, model: r.model, hb: r.stale && !s.b1Restarted ? r.hb : r.id === 'b1' ? '1s' : r.hb, hbC: r.stale && !s.b1Restarted ? 'var(--s-rejected)' : 'var(--fg2)', done: r.done, rej: r.rej, op: r.stale && !s.b1Restarted ? 0.7 : 1,
+        open: () => this.openAgent(r.id),
+        actions: a0.tabs.filter(t => ['Prompt', 'Tools', 'Shell', 'Inbox'].includes(t)).map(t => ({ label: t, go: e => { e.stopPropagation(); this.openAgent(r.id, t); } })),
+      };
+    });
+    const stepRows = lanesF.map(l => ({
+      name: l.name, company: l.company,
+      cells: l.s.map((x, i) => ({ label: STATE_LABEL[x], c: SC[x], open: () => this.setState({ step: { lane: LANES.findIndex(z => z.name === l.name), idx: i }, open: null }) })),
+      tries: String(l.tries), triesC: l.tries > 1 ? 'var(--s-claimed)' : 'var(--fg2)',
+      holder: AGENTS[l.holder].name, open: () => this.openAgent(l.holder, l.holder === 'human' ? 'Inbox' : undefined),
+    }));
+
+    // ---- determinism ----
+    const d = s.det / 100;
+    const temps = [['orchestrator', 0.8], ['workers', 1.0], ['meta-reviewer', 0.5], ['verifier', 0]].map(([role, k]) => ({ role, t: (k * (1 - d)).toFixed(2) }));
+
+    // ---- step graph ----
+    const lanesNow = this.lanes();
+    const openStep = ref => () => this.setState({ step: ref, open: null });
+    const node = (kind, state, agent, ref, i, att = 1, prev = '') => ({
+      kind, label: STATE_LABEL[state], c: SC[state], border: ['planned', 'skipped'].includes(state) ? 'var(--line)' : `color-mix(in oklch, ${SC[state]} 45%, var(--line))`,
+      agent: agent || '—', prev, att: 'a' + att, attC: att > 1 ? 'var(--s-claimed)' : 'var(--fg3)', notFirst: i > 0, open: openStep(ref),
+    });
+    const laneAgent = (l, idx, st) => ['planned', 'ready'].includes(st) ? '' : st === 'input' ? 'human' : st === 'skipped' ? 'meta-reviewer' : idx === 3 ? 'drafter' : idx === 4 ? 'mailer' : idx === 1 && l.tries > 1 ? 'browser-op-2' : 'browser-op-1';
+    const graphRows = [
+      { label: 'Plan', sub: 'orchestrator · parser', weight: 600, pad: '0 0 6px', nodes: ['goal.understand', 'plan.create', 'file.parse'].map((k, i) => node(k, 'committed', i === 2 ? 'parser' : 'orchestrator', { plan: i }, i)) },
+      ...lanesNow.filter(l => lanesF.some(z => z.name === l.name)).map((l) => ({ l, li: lanesNow.indexOf(l) })).map(({ l, li }) => ({ label: l.name, sub: l.company, weight: 500, pad: '0',
+        nodes: LANE_KINDS(l).map((k, i) => node(k.replace('crm.', '').replace('email.', 'email.'), l.s[i], laneAgent(l, i, l.s[i]), { lane: li, idx: i }, i, i === 1 && l.special ? 2 : 1, i === 1 && l.special === 'takeover' ? 'browser-op-1' : '')) })),
+      { label: 'Converge', sub: 'meta-reviewer · verifier', weight: 600, pad: '6px 0 0', nodes: [node('review.approve_emails', 'committed', 'meta-reviewer', { conv: 0 }, 0), node('run.verify_criteria', 'planned', '', { conv: 1 }, 1)] },
+    ];
+    const sd = s.step ? this.stepDetail(s.step) : { inputs: [], attempts: [] };
+
+    // ---- report ----
+    const samRow = s.clarDone ? [['Sam Ito', 'Lumen', s.choices.r9 === 'Skip this lead' ? '—' : 'a.chen', `decided: ${s.choices.r9}`, 'you', s.choices.r9 !== 'Skip this lead']] : [['Sam Ito', 'Lumen', '—', 'confidence 0.52 < 0.80', 'escalated', false]];
+    const RS = [
+      ['Created', 'var(--s-committed)', [['Priya Raman', 'Northwind', 'a.chen'], ['Dana Okafor', 'Helix Bio', 'a.chen'], ['Tom Becker', 'Orbital Freight', 'r.silva'], ['Lena Fischer', 'Kestrel Labs', 'r.silva'], ['Omar Haddad', 'Brightline', 'a.chen'], ['Grace Wu', 'Tallgrass', 'r.silva']].map(r => [...r, 'crm.contact_exists · count = 1', 'verifier', true])],
+      ['Updated (matched existing)', 'var(--s-leased)', [['Marcus Lee', 'Acme Corp', 'r.silva', 'crm.no_duplicate · enriched', 'verifier', true], ['Hannah Cole', 'Fieldstone', 'a.chen', 'crm.no_duplicate · enriched', 'verifier', true], ['Ben Ortiz', 'Quarry Data', 'a.chen', 'matched existing (0.91)', 'meta-reviewer', true]]],
+      ['Skipped', 'var(--fg3)', [['Jo Park', '—', '—', 'no email · § Dedupe (0.88)', 'meta-reviewer', false], ['Lena Fischer', 'Kestrel Labs', '—', 'duplicate row in file (row 6 = row 3)', 'parser', false]]],
+      [s.clarDone ? 'Decided by you' : 'Waiting on you', 'var(--s-input)', samRow],
+    ];
+    const reportSections = RS.map(([title, c, rows]) => ({ title, c, count: String(rows.length), rows: rows.map(([name, company, owner, check, by, link]) => ({ name, company, owner, check, by, link: link ? 'crm ↗' : '' })) }));
+    const reportCriteria = [
+      ['verified', 'Every usable row is a CRM contact exactly once', 'crm.contact_exists + crm.no_duplicate via REST, 9 records'],
+      ['verified', 'Existing contacts enriched, not duplicated', 'crm.no_duplicate via REST · 3 matched'],
+      [s.clarDone ? 'verified' : 'pending', 'Each contact has a follow-up task due in 2 business days', 'crm.task_exists via REST'],
+      ['verified', 'Owner assigned per routing rules', 'assignedUser vs Playbook § Owner routing'],
+      ['waived', 'Rows without email skipped with a reason', 'meta-reviewer decision logged (0.88)'],
+      ['verified', 'Emails sent only with an approval fact', 'approval.auto (judge 0.94) → email.sent via Mailpit API'],
+    ].map(([v, text, how]) => ({ verdict: v, text, how, c: v === 'verified' ? 'var(--s-committed)' : v === 'waived' ? 'var(--fg3)' : 'var(--s-claimed)' }));
+    const reportSummary = s.clarDone
+      ? '12 rows processed: 6 contacts created, 3 updated, 2 skipped with a reason, and Sam Ito decided by you. 8 follow-ups approved automatically and sent.'
+      : '12 rows processed: 6 contacts created, 3 updated, 2 skipped with a reason. One lead is waiting on you. 8 follow-ups approved automatically.';
+
+    const lostPending = false;   // lost agents recover automatically (lease takeover + restart policy)
+    const actionCount = needsList.length;
+    const pickEsc = label => () => this.setState({ escChoice: label });
+    const commitEsc = () => {
+      if (!s.escChoice) return;
+      this.setState({ clarDone: true, choices: { r9: s.escChoice } });
+    };
+
+    // ---- run controls ----
+    const c = s.ctrl;
+    const setC = (k, v, label) => {
+      this.setState(p => ({ ctrl: { ...p.ctrl, [k]: v } }));
+      clearTimeout(this._cT); this._cT = setTimeout(() => this.emit('config.updated', label), 450);
+    };
+    const slider = (k, label, min, max, step, fmt, note, noteC) => ({ isSlider: true, label, min, max, step, value: c[k], display: fmt(c[k]), note, noteC: noteC || 'var(--fg3)', onChange: e => setC(k, +e.target.value, `${label.toLowerCase()} → ${fmt(+e.target.value)}`) });
+    const toggle = (k, label, note, noteC) => ({ isToggle: true, label, note, noteC: noteC || 'var(--fg3)', track: c[k] ? 'var(--s-committed)' : 'var(--line2)', knob: c[k] ? 14 : 2, toggle: () => setC(k, !c[k], `${label.toLowerCase()} ${c[k] ? 'off' : 'on'}`) });
+    const seg = (k, label, opts, note) => ({ isSeg: true, label, note, noteC: 'var(--fg3)', opts: opts.map(([v, l]) => ({ label: l, bg: c[k] === v ? 'var(--fg)' : 'transparent', fg: c[k] === v ? 'var(--bg)' : 'var(--fg2)', pick: () => setC(k, v, `${label.toLowerCase()} → ${l}`) })) });
+    const RED = 'var(--s-rejected)';
+    const ambEsc = decs.filter(x => x.kind === 'ambiguity' && !x.auto).length;
+    const etaMin = 2.4 + 4.3 * 2 / c.concurrency;
+    const budget = c.budget / 100;
+    const warnings = [!c.checkThenAct && 'duplicates possible', !c.fallback && 'no model fallback', c.maxAttempts < 2 && 'retries off', budget < 0.83 && 'over budget', !c.judge && 'judge off'].filter(Boolean);
+    const ctrlGroups = [
+      { title: 'Autonomy', items: [
+        slider('reviewTh', 'Ambiguity auto-threshold', 40, 100, 1, v => (v / 100).toFixed(2), `${3 - ambEsc} of 3 ambiguous rows decided automatically, ${ambEsc} escalate`),
+        slider('emailTh', 'Email auto-approve threshold', 50, 100, 1, v => (v / 100).toFixed(2), c.humanEmail || !c.judge ? 'Overridden by policy below' : (c.emailTh <= 94 ? 'Judge min 0.94 → auto-approved' : 'Judge min 0.94 → escalates to you')),
+        toggle('humanEmail', 'Always ask a human for external email', c.humanEmail ? 'Every email batch waits for you (original plan E1)' : 'Meta-reviewer may approve'),
+        toggle('judge', 'LLM judge for soft checks', c.judge ? 'Runs after deterministic checks (D4)' : 'Rules only; emails cannot be auto-approved', c.judge ? null : RED),
+      ]},
+      { title: 'Reliability', items: [
+        slider('leaseTtl', 'Lease TTL', 5, 60, 5, v => v + 's', `Takeover after ~${c.leaseTtl}s · heartbeat every ${Math.max(1, Math.round(c.leaseTtl / 3))}s`),
+        slider('maxAttempts', 'Max attempts per step', 1, 5, 1, v => String(v), c.maxAttempts < 2 ? "Dana's step would be dead: it needed 2 attempts" : 'Dana needed 2 · Tom needed 2', c.maxAttempts < 2 ? RED : null),
+        toggle('checkThenAct', 'Check-then-act on writes', c.checkThenAct ? 'Takeovers are idempotent' : 'Takeovers can create duplicate contacts (F1 fails)', c.checkThenAct ? null : RED),
+        toggle('replan', 'Replan after 2 rejections', c.replan ? 'Blocked UI path → API skill (B5)' : 'Blocked steps go dead instead'),
+        toggle('fallback', 'Model fallback', c.fallback ? 'Next model in the role list on error' : 'Model outage → steps dead after max attempts', c.fallback ? null : RED),
+      ]},
+      { title: 'Execution', items: [
+        { ...slider('det', 'Determinism', 0, 100, 5, v => (v / 100).toFixed(2), `orch T=${(0.8 * (1 - d)).toFixed(2)} · workers T=${(1 - d).toFixed(2)} · meta T=${(0.5 * (1 - d)).toFixed(2)} · verifier T=0`), value: s.det, display: d.toFixed(2), onChange: e => { const v = +e.target.value; this.setState({ det: v }); clearTimeout(this._detT); this._detT = setTimeout(() => this.emit('config.updated', `determinism ${(v / 100).toFixed(2)}`), 450); } },
+        { ...toggle('seed', 'Pin seed 42', s.seed ? 'Same inputs → same plan' : 'Random seed per attempt'), label: 'Pin seed 42', track: s.seed ? 'var(--s-committed)' : 'var(--line2)', knob: s.seed ? 14 : 2, toggle: () => { this.setState(p => ({ seed: !p.seed })); this.emit('config.updated', s.seed ? 'seed unpinned' : 'seed pinned · 42'); } },
+        slider('concurrency', 'Browser operators', 1, 4, 1, v => String(v), `Estimated run time ~${etaMin.toFixed(1)} min`),
+        seg('writePath', 'CRM write path', [['browser', 'Browser'], ['auto', 'Auto'], ['api', 'API']], c.writePath === 'api' ? 'Faster, but skips the UI demo' : c.writePath === 'auto' ? 'Browser first, API when the UI is blocked' : 'Acts through the UI; verifier reads REST'),
+      ]},
+      { title: 'Safety', items: [
+        slider('budget', 'Spend cap', 50, 500, 10, v => '$' + (v / 100).toFixed(2), budget < 0.83 ? 'Already spent $0.83: run pauses' : `$0.83 spent · ${Math.round(83 / budget)}% of cap`, budget < 0.83 ? RED : null),
+        slider('fuzzy', 'Fuzzy match threshold', 70, 99, 1, v => (v / 100).toFixed(2), c.fuzzy > 86 ? 'Ben Ortiz (0.86) would not be proposed as a match' : 'Ben Ortiz (0.86) proposed as a match'),
+        toggle('dryRun', 'Dry run (do not send email)', c.dryRun ? 'Emails approved but not sent' : 'Mailer sends via SMTP'),
+      ]},
+      { title: 'Inject fault', items: CHAOS.map(ch => ({ isFault: true, label: ch[1], desc: ch[2], last: s.chaosLast[ch[0]] || 'not fired', note: ch[2], noteC: 'var(--fg3)', fire: () => this.fire(ch) })) },
+    ];
+
+    // ---- escalations (needs your attention) ----
+    const escalations = decs.filter(x => x.escalated).map(x => {
+      const pick = s.picks[x.id];
+      return {
+        kicker: x.forced ? `ESCALATED · ${x.reason.toUpperCase()}` : 'ESCALATED · META-REVIEWER UNSURE',
+        title: x.title, desc: x.desc, tried: x.tried, confLine: x.forced ? x.reason : `${x.reason} (auto threshold)`,
+        opts: x.opts.map(([label, meta]) => { const on = pick === label; return { label, meta, pick: () => this.setState(p => ({ picks: { ...p.picks, [x.id]: label } })),
+          border: on ? 'var(--s-input)' : 'var(--line)', bg: on ? 'color-mix(in oklch, var(--s-input) 7%, var(--panel))' : 'var(--panel)', ring: on ? 'var(--s-input)' : 'var(--line2)', dot: on ? 'var(--s-input)' : 'transparent' }; }),
+        commitBg: pick ? 'var(--s-input)' : 'color-mix(in oklch, var(--s-input) 40%, var(--line2))',
+        commit: () => { if (!pick) return; this.setState(p => ({ answers: { ...p.answers, [x.id]: pick }, ...(x.id === 'sam' ? { clarDone: true, choices: { r9: pick } } : {}) })); this.emit('input.answered', `${x.id} → ${pick}${s.saveRule ? ' · saved as playbook rule' : ''}`); },
+      };
+    });
+    const autoList = [
+      ...decs.filter(x => x.choice).map(x => ['committed', x.autoTitle(x.choice), x.answered ? 'Decided by you.' : `${x.autoWhy} (${x.reason})`, x.by]),
+      ['leased', 'Browser operator 1 lost, work taken over', `Lease expired after ${c.leaseTtl}s, operator 2 continued with token 2.`, 'supervisor'],
+      ...(c.fallback ? [['claimed', 'Primary worker model outage', 'Drafter fell back to gpt-4.1-mini; drafts passed verification.', 'llm router']] : []),
+    ];
+
+    // ---- report ----
+    const dmap = Object.fromEntries(decs.map(x => [x.id, x]));
+    const emailOk = !!dmap.emails.choice && dmap.emails.choice === 'Approve all 8';
+    const leadOutcome = code => {
+      if (code === 'sam') { const ch = dmap.sam.choice; return ch ? (ch === 'Skip this lead' ? ['skipped', 'skipped'] : ['created', 'created']) : ['waiting', 'waiting on you']; }
+      if (code === 'jo') { const ch = dmap.jo.choice; return ch ? (ch === 'Skip' ? ['skipped', 'skipped'] : ['created', 'created']) : ['waiting', 'waiting on you']; }
+      if (code === 'ben') { const ch = dmap.ben.choice; return ch ? (ch === 'Same person' ? ['updated', 'updated (fuzzy)'] : ch === 'New contact' ? ['created', 'created'] : ['skipped', 'skipped']) : ['waiting', 'waiting on you']; }
+      return [code, code];
+    };
+    const OUT_C = { created: 'var(--s-committed)', updated: 'var(--s-leased)', skipped: 'var(--fg3)', waiting: 'var(--s-input)' };
+    const leadAll = LEADS12.map(([n, name, company, email, code, owner, due, ei, agent, check, tries]) => {
+      const [cat, label] = leadOutcome(code);
+      const dec = code === 'sam' ? dmap.sam : code === 'jo' ? dmap.jo : code === 'ben' ? dmap.ben : null;
+      const hasEmail = ei >= 0;
+      const emailSt = !hasEmail ? (code === 'ben' ? 'none · open deal' : '—') : !emailOk ? (dmap.emails.choice ? 'held' : 'waiting') : c.dryRun ? 'approved · dry run' : 'sent 14:09';
+      return { cat, n: String(n), name, company, email, outcome: label + (tries > 1 ? ` · ${tries} tries` : ''), c: OUT_C[cat],
+        owner: cat === 'created' || cat === 'updated' ? (owner === '—' ? 'a.chen' : owner) : '—', task: cat === 'created' || cat === 'updated' ? (due === '—' ? 'Oct 7' : due) : '—',
+        emailSt, emailC: emailSt.startsWith('sent') ? 'var(--s-committed)' : emailSt === 'waiting' ? 'var(--s-input)' : 'var(--fg3)',
+        by: dec ? (dec.choice ? `${dec.by === 'you' ? 'You' : 'Meta-reviewer'}: ${dec.choice}` : 'Waiting on you') : agent,
+        check: dec ? dec.reason : check, link: cat === 'created' || cat === 'updated' ? 'open ↗' : '', shotOp: cat === 'created' || cat === 'updated' ? 1 : 0.35 };
+    });
+    const cnt = k => leadAll.filter(l => l.cat === k).length;
+    const leadRows = leadAll.filter(l => s.repFilter === 'all' || l.cat === s.repFilter);
+    const waiting = cnt('waiting');
+    const total = waiting ? 401 + 60 : 401;
+    const pct = v => (v / total * 100).toFixed(2);
+    const gantt = PHASES.filter(p => p[1] !== 'human' || waiting || s.answers.sam).map(([label, agent, a0, b0]) => {
+      const b1 = b0 == null ? (waiting ? total : 262) : b0;
+      const isHuman = agent === 'human';
+      const col = isHuman ? 'var(--s-input)' : label === 'Send emails' && (c.dryRun || !emailOk) ? 'var(--line2)' : agent === 'meta-reviewer' ? 'color-mix(in oklch, var(--s-input) 55%, var(--s-leased))' : agent === 'verifier' ? 'var(--s-committed)' : 'var(--s-leased)';
+      const dur = b1 - a0;
+      return { label: label === 'Send emails' && c.dryRun ? 'Send emails (dry run)' : label, agent, left: pct(a0), width: pct(dur), c: col, dur: isHuman && waiting ? 'open' : `${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, '0')}` };
+    });
+    const ganttMarks = MARKS.map(([t, , label], i) => ({ left: pct(t), label, short: label.split(' ').slice(1).join(' '), top: i % 2 ? 13 : 0 }));
+    const decisionLog = decs.map(x => ({
+      title: x.title, evidence: x.tried.join(' · '),
+      confPct: (x.conf * 100).toFixed(0), thPct: (x.th * 100).toFixed(0), c: x.auto ? 'var(--s-committed)' : 'var(--s-input)',
+      confLabel: x.forced ? `${x.conf.toFixed(2)} · ${x.reason}` : `${x.conf.toFixed(2)} vs ${x.th.toFixed(2)}`,
+      result: x.choice ? (x.answered ? `You: ${x.choice}` : `Auto: ${x.choice}`) : 'Escalated, waiting on you', by: x.by,
+    }));
+    const emailRows = EMAILS.map((m, i) => ({ to: m.to, subject: m.subject, judge: c.judge ? JUDGE[i].toFixed(2) : '—',
+      approval: dmap.emails.choice ? (dmap.emails.answered ? 'you' : 'auto') : 'waiting', apC: dmap.emails.choice ? 'var(--fg2)' : 'var(--s-input)',
+      delivery: !emailOk ? (dmap.emails.choice ? 'held' : '—') : c.dryRun ? 'dry run' : `sent · mp_${(4810 + i * 7).toString(16)}`, dC: emailOk && !c.dryRun ? 'var(--s-committed)' : 'var(--fg3)' }));
+    const sentN = emailOk && !c.dryRun ? 8 : 0;
+    const coverage = COVERAGE.map(([k, ch, runs, pass, rej, p50]) => {
+      const r2 = k === 'email.sent' ? sentN : runs, p2 = k === 'email.sent' ? sentN : pass;
+      return { k, ch, runs: String(r2), pass: String(p2), rej: String(rej), rejC: rej ? 'var(--s-rejected)' : 'var(--fg3)', p50 };
+    });
+    const autoN = decs.filter(x => x.auto).length, youN = decs.filter(x => x.answered).length;
+    const reportSummary2 = `12 rows processed: ${cnt('created')} created, ${cnt('updated')} updated, ${cnt('skipped')} skipped with a reason${waiting ? `, ${waiting} waiting on you` : ''}. ${autoN} of 4 decisions made automatically${youN ? `, ${youN} by you` : ''}. ${sentN ? '8 follow-ups sent.' : emailOk ? 'Follow-ups approved (dry run).' : 'Follow-ups not sent yet.'}`;
+    const rv = { reportSummary: reportSummary2, reportCriteria, reportSections, leads: leadAll, decisions: decisionLog };
+    const pv = id && s.promptVer[id] || 1;
+    return {
+      // views
+      navTabs: [['dashboard', 'Dashboard'], ['report', 'Report'], ['builder', 'Builder']].map(([k, label]) => ({ label, bg: s.view === k ? 'var(--panel)' : 'transparent', shadow: s.view === k ? 'var(--shadow)' : 'none', fg: s.view === k ? 'var(--fg)' : 'var(--fg2)', go: () => this.setState({ view: k, open: null, step: null }) })),
+      isDash: s.view === 'dashboard', isReport: s.view === 'report',
+      goReport: () => this.setState({ view: 'report' }),
+
+      // controls
+      ctrlGroups, hasWarnings: warnings.length > 0, warnLabel: warnings.length + ' risk' + (warnings.length > 1 ? 's' : '') + ': ' + warnings.join(', '),
+      resetCtrl: () => { this.setState({ ctrl: { ...CTRL_DEFAULTS }, det: 80, seed: true }); this.emit('config.updated', 'reset to playbook defaults'); },
+      stripMeta: `2 retries · 1 takeover · 1 fallback · $0.83 of $${budget.toFixed(2)} · ETA ${etaMin.toFixed(1)} min`, stripC: budget < 0.83 ? 'var(--s-rejected)' : 'var(--fg3)',
+      escalations,
+      autoItems: autoList.map(([k, title, why, by]) => ({ c: SC[k], title, why, by })), autoCount: String(autoList.length),
+
+      // report (rich)
+      toc: [['rep-summary', 'Summary'], ['rep-timeline', 'Timeline'], ['rep-leads', 'Every row'], ['rep-decisions', 'Decisions'], ['rep-criteria', 'Criteria'], ['rep-verification', 'Verification'], ['rep-emails', 'Emails'], ['rep-recoveries', 'Recoveries'], ['rep-agents', 'Agents and cost'], ['rep-data', 'Input file'], ['rep-repro', 'Reproduce']].map(([id, label]) => ({ href: '#' + id, label })),
+      outcomeBar: [['created', 'Created'], ['updated', 'Updated'], ['skipped', 'Skipped'], ['waiting', 'Waiting on you']].map(([k, label]) => ({ label, n: cnt(k), c: OUT_C[k] })).filter(o => o.n > 0),
+      gantt, ganttMarks,
+      ganttTicks: [0, 100, 200, 300, 400, total].filter((t, i, a) => t <= total && (i === a.length - 1 || total - t > 35)).map((t, i, a) => ({ left: pct(t), shift: i === 0 ? '0' : i === a.length - 1 ? '-100%' : '-50%', label: `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}` })),
+      totalLabel: `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`,
+      leadRows, leadFilters: [['all', 'All', 12], ['created', 'Created', cnt('created')], ['updated', 'Updated', cnt('updated')], ['skipped', 'Skipped', cnt('skipped')], ['waiting', 'Waiting', waiting]].map(([k, label, n]) => ({ label, n: String(n), ...pill(s.repFilter === k), pick: () => this.setState({ repFilter: k }) })),
+      decisionLog, coverage, emailRows,
+      emailsNote: sentN ? '8 sent via SMTP, each confirmed in Mailpit by the verifier.' : c.dryRun && emailOk ? 'Approved; not sent because dry run is on.' : 'Not sent: approval is still open.',
+      agentPerf: AGENT_PERF.map(([agent, model, steps, rej, retry, p50, tok, cost]) => ({ agent, model, steps: String(steps), rej: String(rej), retry: String(retry), p50, tok, cost })),
+      dataQuality: DATA_Q.map(([n, label, ex]) => ({ n, label, ex })),
+      repro: [['determinism', `${d.toFixed(2)} · seed ${s.seed ? '42 (pinned)' : 'random'}`], ['playbook', 'event-leads.md v3 · a91c'], ['input', 'event_attendees.csv · sha256 3f9e…a1'], ['prompts', ['orch', 'meta', 'verifier', 'b2', 'drafter'].map(k => `${k} v${s.promptVer[k] || 1}`).join(' · ')], ['models', 'orch sonnet-4.5 · workers haiku-4.5 → gpt-4.1-mini · verifier gemini-2.5-flash'], ['thresholds', `ambiguity ${(c.reviewTh / 100).toFixed(2)} · email ${(c.emailTh / 100).toFixed(2)} · fuzzy ${(c.fuzzy / 100).toFixed(2)}`], ['reliability', `lease ${c.leaseTtl}s · max attempts ${c.maxAttempts} · check-then-act ${c.checkThenAct ? 'on' : 'off'}`], ['faults injected', 'false_claim, kill, session, outage']].map(([k, v]) => ({ k, v })),
+      replayCmd: `$ make replay RUN=run_7f3a SEED=${s.seed ? 42 : 'random'} DETERMINISM=${d.toFixed(2)}`,
+
+      // report
+      reportStatus: needsList.length ? `completed · ${needsList.length} waiting` : 'completed', reportSummary: reportSummary2, reportCriteria, reportSections,
+      reportStats: [[String(cnt('created') + cnt('updated')), 'contacts verified', 'var(--s-committed)', 'REST · 0 duplicates'], [String(cnt('skipped')), 'skipped with reason', 'var(--fg2)', 'logged per row'], [String(autoN) + '/4', 'decided automatically', 'var(--s-leased)', 'meta-reviewer'], [String(needsList.length), 'waiting on you', 'var(--s-input)', needsList.length ? 'see Decisions' : 'none'], [String(sentN), 'emails sent', 'var(--s-committed)', 'confirmed in Mailpit'], ['4', 'faults recovered', 'var(--s-rejected)', '1:19 lost']].map(([n, label, c, sub]) => ({ n, label, c, sub })),
+      reportRecoveries: RECOVERIES.map(([fault, what, recovery, lost], i) => ({ at: ['0:52', '1:30', '2:30', '3:34'][i], fault, what, recovery, lost })),
+      reportCost: [['orchestrator', 'claude-sonnet-4.5', '96k', '$0.29'], ['workers', 'claude-haiku-4.5 → gpt-4.1-mini', '182k', '$0.14'], ['meta-reviewer', 'claude-sonnet-4.5', '61k', '$0.21'], ['verifier', 'gemini-2.5-flash', '73k', '$0.04'], ['judge', 'claude-sonnet-4.5', '44k', '$0.15']].map(([role, model, tok, cost]) => ({ role, model, tok, cost })),
+      exportMd: () => { const blob = new Blob([this.reportMarkdown(rv)], { type: 'text/markdown' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'run_7f3a-evidence.md'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); },
+      printReport: () => window.print(),
+
+      // run controls
+      det: s.det, detLabel: d.toFixed(2), seedLabel: s.seed ? '42 (pinned)' : 'random', temps,
+      setDet: e => { const v = +e.target.value; this.setState({ det: v }); clearTimeout(this._detT); this._detT = setTimeout(() => this.emit('config.updated', `determinism ${(v / 100).toFixed(2)} · workers T=${(1 - v / 100).toFixed(2)} · verifier T=0`), 500); },
+      toggleSeed: () => { this.setState(p => ({ seed: !p.seed })); this.emit('config.updated', s.seed ? 'seed unpinned' : 'seed pinned · 42'); },
+      seedTrack: s.seed ? 'var(--s-committed)' : 'var(--line2)', seedKnob: s.seed ? 14 : 2,
+      chaos: CHAOS.map(c => ({ label: c[1], desc: c[2], last: s.chaosLast[c[0]] || 'not fired', fire: () => this.fire(c) })),
+
+      // step graph + drawer
+      graphRows, legend: ['committed', 'claimed', 'leased', 'ready', 'input', 'planned', 'skipped'].map(k => ({ c: SC[k], label: STATE_LABEL[k] })),
+      stepOpen: !!s.step, sd, closeStep: () => this.setState({ step: null }),
+
+      // prompt editing
+      promptVer: 'v' + pv, nextVer: 'v' + (pv + 1), promptKey: `${id}-${pv}`,
+      promptChange: () => { if (!s.promptDirty[id]) this.setState(p => ({ promptDirty: { ...p.promptDirty, [id]: true } })); },
+      savePrompt: () => { if (!s.promptDirty[id]) return; this.setState(p => ({ promptVer: { ...p.promptVer, [id]: pv + 1 }, promptDirty: { ...p.promptDirty, [id]: false } })); this.emit('prompt.updated', `${id} → v${pv + 1} · applies on next attempt`); },
+      saveBg: id && s.promptDirty[id] ? 'var(--fg)' : 'var(--fg3)',
+      saveNote: id && s.promptDirty[id] ? 'Unsaved changes' : 'Versioned in the ledger. Applies from the next attempt.',
+
+      // view switching (both views stay mounted)
+      dashDisplay: s.view !== 'builder' ? 'flex' : 'none', builderDisplay: s.view === 'builder' ? 'block' : 'none',
+      isBuilder: s.view === 'builder', theme: s.theme,
+      navigate: v => this.setState({ view: v }),
+      goBuilder: e => { e.preventDefault(); this.setState({ view: 'builder' }); },
+      scrollRef: this.scrollRef, scrollTop: () => { const el = this.scrollRef.current; if (el) el.scrollTo({ top: 0, behavior: 'smooth' }); },
+
+      // needs your attention
+      escPending: !s.clarDone, lostPending,
+      escTried: ESC_TRIED,
+      escOpts: ESC_OPTS.map(([label, meta]) => { const on = s.escChoice === label; return { label, meta, pick: pickEsc(label),
+        border: on ? 'var(--s-input)' : 'var(--line)', bg: on ? 'color-mix(in oklch, var(--s-input) 7%, var(--panel))' : 'var(--panel)', ring: on ? 'var(--s-input)' : 'var(--line2)', dot: on ? 'var(--s-input)' : 'transparent' }; }),
+      commitEsc, commitBg: s.escChoice ? 'var(--s-input)' : 'color-mix(in oklch, var(--s-input) 40%, var(--line2))',
+      toggleRule: () => this.setState(p => ({ saveRule: !p.saveRule })),
+      ruleCheck: s.saveRule ? '✓' : '', ruleBg: s.saveRule ? 'var(--s-input)' : 'transparent', ruleBorder: s.saveRule ? 'var(--s-input)' : 'var(--line2)',
+      allClear: actionCount === 0,
+      clearNote: s.clarDone ? `Committed: Sam Ito → ${s.choices.r9}.${s.saveRule ? ' Saved to Playbook § Dedupe rules.' : ''} The run finishes on its own.` : '',
+      actionCountLabel: actionCount ? `${actionCount} escalation${actionCount > 1 ? 's' : ''} · the meta-reviewer resolved ${decs.filter(d => d.auto).length} of 4 decisions` : 'nothing waiting on you',
+
+      openMeta: () => this.openAgent('meta'),
+      clarCountLabel: `${Object.values(s.choices).filter(Boolean).length} of 3 decisions`,
+      emailPreview: EMAILS.slice(0, 3).map(m => m.to),
+      approveAll: () => this.answerDone('approveDone'), reviewEmails: () => this.openAgent('human', 'Inbox'),
+      restartB1: () => this.setState(p => ({ b1Restarted: true, shell: { ...p.shell, b1: [['container ledger-worker-browser-1 restarted', T_DIM], ['agent.registered worker-browser-1 · heartbeat ok', T_DIM]] } })),
+      openB1Shell: () => this.openAgent('b1', 'Shell'), dismissLost: () => this.setState({ lostDismissed: true }),
+
+      // workflow
+      wfTabs: [['agents', 'Agents', AGENT_ROWS.length], ['steps', 'Steps', LANES.length], ['graph', 'Graph', '46']].map(([k, label, n]) => ({ label, n: String(n), fg: s.wfTab === k ? 'var(--fg)' : 'var(--fg3)', bar: s.wfTab === k ? 'var(--fg)' : 'transparent', pick: () => this.setState({ wfTab: k, wfFilter: 'all', q: '' }) })),
+      flow: [['playbook', 'v3'], ['orch', '46 steps'], ['ledger', '1,284 ev'], ['workers', '5 workers'], ['verifier', '24 commits'], ['meta', 'auto ≥ 0.80'], ['human', 'escalations only']].map(([k, meta], i, arr) => k === 'workers'
+        ? { name: 'Workers', meta, c: 'var(--s-leased)', arrow: '→', open: () => this.setState({ wfTab: 'agents', wfFilter: 'worker' }) }
+        : { name: AGENTS[k].name, meta, c: box(k).c, arrow: i < arr.length - 1 ? (k === 'ledger' ? '⇄' : '→') : '', open: () => this.openAgent(k) }),
+      q: s.q, setQ: e => this.setState({ q: e.target.value }), qPlaceholder: isAgents ? 'Search agents, steps, models…' : 'Search leads…',
+      filters: curFilters.map(([k, label]) => ({ label, n: String(isAgents ? agentsAll.filter(r => agentMatch(r, k)).length : lanesAll.filter(l => laneMatch(l, k)).length), ...pill(s.wfFilter === k), pick: () => this.setState({ wfFilter: k }) })),
+      shownLabel: isAgents ? `${agentRows.length} of ${AGENT_ROWS.length}` : `${stepRows.length} of ${LANES.length}`,
+      isAgentsTab: isAgents && agentRows.length > 0, isStepsTab: s.wfTab === 'steps' && stepRows.length > 0, isGraphTab: s.wfTab === 'graph',
+      emptyTable: isAgents ? agentRows.length === 0 : s.wfTab === 'steps' && stepRows.length === 0,
+      agentRows, stepRows,
+
+      // top bar
+      themeLabel: s.theme === 'light' ? 'Dark' : 'Light', toggleTheme: this.toggleTheme,
+      hasNeeds: actionCount > 0, needsCount: String(actionCount), openInbox: () => this.openAgent('human', 'Inbox'),
+      elapsed: `${mm}:${ss}`,
+      progress: [['committed', 31, 'committed'], ['claimed', 2, 'claimed'], ['leased', 3, 'leased'], ['input', s.clarDone ? 0 : 1, 'escalated'], ['planned', 9, 'planned']].map(([k, n, label]) => ({ n, label, c: SC[k] })),
+
+      // system
+      pipeline: ['playbook', 'orch', 'ledger'].map((k, i) => ({ ...box(k), arrow: i === 2 ? '⇄' : '→' })),
+      workers: ['parser', 'b1', 'b2', 'drafter', 'mailer', 'human'].map(k => ({ ...box(k), op: this.isDead(k) ? 0.6 : 1 })),
+      verifier: box('verifier'),
+
+      // cards
+      needs: needsList, noNeeds: needsList.length === 0,
+      criteria: CRITERIA.map(([icon, k, text]) => ({ icon, text, c: SC[k] })),
+      events: s.events.map(([t, type, payload]) => ({ t, type, payload, c: EV_TYPE_C(type) })),
+      runs: RUNS.map(([id, goal, status, dur, steps]) => ({ id, goal, status, dur, steps, c: RUN_C[status] })),
+
+      // sheet
+      sheetOpen: !!a, closeSheet: () => this.setState({ open: null }), ag, tabs,
+      tOverview: s.tab === 'Overview', tPrompt: s.tab === 'Prompt', tTools: s.tab === 'Tools', tShell: s.tab === 'Shell',
+      tStreams: s.tab === 'Streams', tChecks: s.tab === 'Checks', tContent: s.tab === 'Content', tInbox: s.tab === 'Inbox',
+      injections, tokTotal: String(tokTotal), tools,
+      addMcp: addTool(n => ['MCP', `new-mcp-${n}`, 'stdio · configure command + args']),
+      addHttp: addTool(n => ['REST', `http-tool-${n}`, 'https://… · auth: none']),
+      addFn: addTool(n => ['FUNC', `custom_fn_${n}`, 'module.path:function']),
+      streams: STREAMS.map(([k, type, n]) => ({ k, type, n })),
+      checks: CHECKS.map(([k, via, n]) => ({ k, via, n })),
+      playbook: PLAYBOOK.map(([h, b, used]) => ({ h, b, used })),
+
+      // inbox
+      clarOpen: !s.clarDone, approveOpen: !s.approveDone,
+      clarRows: CLAR.filter(r => r.id === 'r9').map(r => ({ ...r, opts: r.opts.map(o => ({ label: o, ...pill(s.choices[r.id] === o), pick: () => this.setState(p => ({ choices: { ...p.choices, [r.id]: o } })) })) })),
+      submitClar: () => { if (s.choices.r9) this.setState({ clarDone: true, escChoice: s.choices.r9 }); },
+      emails: EMAILS.map(m => {
+        const on = !!s.approved[m.id], open = s.openEmail === m.id;
+        return { ...m, open, caret: open ? '▾' : '▸', check: on ? '✓' : '', boxBg: on ? 'var(--s-input)' : 'transparent', boxBorder: on ? 'var(--s-input)' : 'var(--line2)',
+          toggle: () => this.setState(p => ({ openEmail: p.openEmail === m.id ? null : m.id })),
+          toggleSel: e => { e.stopPropagation(); this.setState(p => ({ approved: { ...p.approved, [m.id]: !p.approved[m.id] } })); } };
+      }),
+      selCount: String(Object.values(s.approved).filter(Boolean).length),
+      submitApprove: () => this.answerDone('approveDone'), rejectAll: () => this.answerDone('approveDone'),
+
+      // shell
+      termRef: this.termRef, shellRef: this.shellRef, cpu: a && this.isDead(id) ? '0' : String(s.cpu),
+      shellLines: (id ? s.shell[id] || [] : []).map(([text, c]) => ({ text, c })),
+      shellInput: s.shellInput, shellChange: e => this.setState({ shellInput: e.target.value }),
+      shellKey: e => { if (e.key === 'Enter') { this.runCmd(id, s.shellInput); this.setState({ shellInput: '' }); } },
+      focusShell: () => this.shellRef.current && this.shellRef.current.focus(),
+      toggleFollow: () => this.setState(p => ({ follow: !p.follow })), followBg: s.follow ? '#2E3036' : 'transparent',
+    };
+  }
+}
+</script>
+</body>
+</html>
