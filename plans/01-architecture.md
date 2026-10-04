@@ -251,6 +251,21 @@ meta-reviewer answers with a `task.artifact` whose data part is:
   4. **Model fallback**: LLM error or repeated rejection -> next model in the
      role's list, emit `model.fallback`.
 
+### Implementation notes (Track A, ledger core)
+
+- `steps:leased` (Set, `Keys.leased_steps`) indexes steps in `leased` so the
+  reaper never scans every run; `ledger.transition` maintains it atomically.
+- Non-terminal run status changes emit `run.status` (`{from, to}`); terminal
+  ones keep `run.completed` / `run.completed_pending_input` / `run.failed`.
+- A step whose lease expired `max_attempts` times goes to `dead` (a step that
+  crashes every worker cannot loop forever). Rejections count separately.
+- `false_claim` may be scoped to one skill: field `false_claim:<skill>` in
+  `faults` is consumed before the global `false_claim` field.
+- The verifier's rejected -> ready/dead/hold choice is a pluggable policy
+  (`Verifier(reject_policy=...)`) so the orchestrator can hold steps for B5.
+- Bus entries the dead consumer never acked are XAUTOCLAIMed after 30s idle;
+  harmless because the lease + state machine decide who works on a step.
+
 ## 6. Models (OpenRouter)
 
 Configured by role in `.env`, never hard-coded:

@@ -51,6 +51,10 @@ class Keys:
     def fence(self, step_id: str) -> str:
         return self._k("fence", step_id)
 
+    @property
+    def leased_steps(self) -> str:  # Set of step ids currently in `leased` (reaper index)
+        return self._k("steps", "leased")
+
     # queues (Streams)
     def queue(self, skill: str) -> str:
         return self._k("queue", skill)

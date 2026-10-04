@@ -15,9 +15,15 @@ from .keys import Keys
 from .protocol import Event
 
 
+def encode_event(event: Event) -> dict[str, str]:
+    """Stream fields for one event. Use with pipeline.xadd(keys.events, ...) when an
+    event must be written in the same MULTI/EXEC as the state change it records."""
+    return {"json": event.model_dump_json(exclude={"id"})}
+
+
 async def append_event(r: aioredis.Redis, keys: Keys, event: Event) -> str:
     """Append and return the stream id (also set on event.id)."""
-    stream_id = await r.xadd(keys.events, {"json": event.model_dump_json(exclude={"id"})})
+    stream_id = await r.xadd(keys.events, encode_event(event))
     event.id = stream_id
     return stream_id
 
