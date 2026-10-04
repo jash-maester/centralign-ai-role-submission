@@ -41,7 +41,7 @@ the committed review step's claim data. Shape: {"decision": "skip" |
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -166,6 +166,22 @@ def register_tail(builder: TailBuilder) -> TailBuilder:
     """Add a stage after contact + task for every lane (W3: email lanes)."""
     TAIL_BUILDERS.append(builder)
     return builder
+
+
+# Run-level stages (Track K, additive): async hooks the orchestrator calls on
+# every progress round, after lane progression, with the orchestrator itself
+# (for its CRM reader, event info and waiting/moving view):
+#     async def stage(orch, run, steps, facts, cfg) -> bool   # True = created/changed steps
+# Used for work that spans lanes or needs I/O to plan (email: open-deal check,
+# one approval batch per run, send steps after approval).
+RunStage = Callable[..., Awaitable[bool]]
+RUN_STAGES: list[RunStage] = []
+
+
+def register_stage(stage: RunStage) -> RunStage:
+    if stage not in RUN_STAGES:
+        RUN_STAGES.append(stage)
+    return stage
 
 
 # ---------------------------------------------------------------------------
