@@ -637,6 +637,29 @@ hard check exists, and its verdict is recorded with its reasoning.
   verified when every lane that should get an email has a committed send
   (approval rejections count as handled; excluded lanes are listed).
 
+### Integration notes (wave W3 gate)
+
+- J reads K's approval step as built: `decide_approval` takes `inputs.items`
+  (draft fact refs resolved) when there is no `inputs.drafts`. The batch is
+  decided all-or-nothing (one judge call; the min score must clear
+  `approval_auto_threshold`, else the whole batch escalates). K's per-lane
+  `approval.policy_decisions` (partial batches) is not used by the reviewer.
+- Whoever decides an approval (meta-reviewer or a human answer, re-claimed by
+  the reviewer) commits `approval:<lane>` per email (pinned to, subject,
+  draft_step) and adds `items` / `approved` / `rejected` / `lanes` to
+  `approval:emails`. The mailer and the send stage read those.
+- `lookup_for`: J and K each carried the F/G lookup fix; main keeps the W2
+  gate's version (one fix).
+- A run pinned to an in-process orchestrator (`cli demo`) is adopted by the
+  service orchestrator once the pinned one is no longer alive and the run is
+  `completed_pending_input`, so answering an escalation after the demo exits
+  still releases the lane. Runs still being planned stay pinned.
+- After Sam Ito's escalation is answered, his lane is drafted, approved in a
+  second, one-email batch and sent: 8 emails at `completed_pending_input`, 9
+  once the run completes (plans/02 lists the 8 at the escalation point). The
+  scripted fixtures include `lead:9` for the drafter and the batch judge.
+- Report `decisions[]` also carry `model` and `source` (llm | rule | human | judge).
+
 ## 9a. Agent operations
 
 - **Config:** `GET/PUT /agents/{id}/config` for prompt text (versioned),

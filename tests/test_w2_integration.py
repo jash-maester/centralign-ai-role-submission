@@ -42,3 +42,20 @@ async def test_pinned_run_is_left_to_its_orchestrator(r, keys, repo):
     free = await submit_goal(r, keys, "unpinned goal", playbook_dir=f"{repo}/playbooks")
     owned_only = Orchestrator(r, keys, agent_id="orchestrator-local", run_reaper=False, owned_only=True)
     assert (await owned_only.reconcile(free.id)).status == RunStatus.CREATED
+
+
+async def test_pinned_run_waiting_on_a_human_is_adopted_once_its_orchestrator_is_gone(r, keys, repo):
+    """W3: a scripted demo exits with the run completed_pending_input; the answer to its
+    escalation must still be picked up by the service orchestrator."""
+    from ledger_core import agents, ledger
+
+    run = await submit_goal(r, keys, "pinned goal", orchestrator="orchestrator-local", playbook_dir=f"{repo}/playbooks")
+    pending = (await ledger.get_run(r, keys, run.id)).model_copy(update={"status": RunStatus.COMPLETED_PENDING_INPUT})
+    await r.hset(keys.run(run.id), "json", pending.model_dump_json())
+    await agents.set_alive(r, keys, "orchestrator-local")
+    svc = Orchestrator(r, keys, agent_id="orchestrator", run_reaper=False)
+    await svc.reconcile(run.id)
+    assert await r.hget(keys.run(run.id), "orchestrator") == "orchestrator-local"  # owner alive: left alone
+    await agents.clear_alive(r, keys, "orchestrator-local")
+    await svc.reconcile(run.id)
+    assert await r.hget(keys.run(run.id), "orchestrator") == "orchestrator"  # owner gone: adopted

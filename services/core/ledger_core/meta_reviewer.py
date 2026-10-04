@@ -328,6 +328,8 @@ async def decide_approval(step: Step, inputs: dict[str, Any], cfg: RunConfig, *,
     raw = inputs.get("drafts")
     if raw is None and isinstance(inputs.get("draft"), dict):
         raw = [inputs["draft"]]
+    if raw is None and isinstance(inputs.get("items"), list):
+        raw = drafts_from_items(inputs["items"])
     drafts = [d for d in (raw or []) if isinstance(d, dict)]
     evidence: list[str] = [f"{len(drafts)} draft(s) in the batch"]
     tried: list[str] = []
@@ -380,6 +382,22 @@ async def decide_approval(step: Step, inputs: dict[str, Any], cfg: RunConfig, *,
     return Outcome(d, auto, tried=tried, forced_reason=forced, option=dec,
                    label=next((o.label for o in options if o.value == dec), None), source="judge",
                    extra={"scores": scores, "drafts": [str(x.get("id", i)) for i, x in enumerate(drafts)]})
+
+
+def drafts_from_items(items: list[Any]) -> list[dict[str, Any]]:
+    """W3 integration: Track K's approval step lists `items` [{lane, draft_step,
+    draft (resolved lead:<n>.draft fact), to, subject, approval_key}]; the judge
+    and the checks above want flat drafts keyed by lane."""
+    out: list[dict[str, Any]] = []
+    for it in items:
+        if not isinstance(it, dict) or not it.get("lane"):
+            continue
+        d = it.get("draft") if isinstance(it.get("draft"), dict) else {}
+        out.append({**d, "id": it["lane"], "lane": it["lane"], "draft_step": it.get("draft_step"),
+                    "to": d.get("to") or it.get("to"), "subject": d.get("subject") or it.get("subject"),
+                    "body": d.get("body") or "", "checks_ok": None if d else False,
+                    "check_reason": None if d else f"draft fact for {it['lane']} is not committed"})
+    return out
 
 
 def human_outcome(step: Step) -> Outcome | None:
@@ -461,6 +479,11 @@ class MetaReviewer(Worker):
         rec = out.record()
         key = escalations.decision_key(step)
         approval = step.kind == StepKind.REVIEW_APPROVAL
+        if approval:
+            rec = await self._approval_items(step, rec)
+            if out.source == "human":  # re-commit the human record with the per-email items
+                await ledger.commit_fact(self.r, self.keys, step.run_id, key, rec, source_step=step.id,
+                                         actor=self.agent_id)
         if out.source != "human":  # a human answer already committed its fact
             await ledger.commit_fact(self.r, self.keys, step.run_id, key, rec, source_step=step.id, actor=self.agent_id)
             await append_event(self.r, self.keys, Event(
@@ -482,6 +505,39 @@ class MetaReviewer(Worker):
             log.warning("%s: claim for %s refused: %s", self.agent_id, step.id, exc)
             return "claim_refused"
         return "resolved"
+
+    async def _approval_items(self, step: Step, rec: dict[str, Any]) -> dict[str, Any]:
+        """W3 integration with Track K (approval.py): a batch decision becomes one
+        `approval:<lane>` fact per email (what the mailer and the send stage read,
+        pinned to recipient, subject and draft step) plus the per-email `items`,
+        `approved` / `rejected` lists on the batch record."""
+        from . import approval as ap
+
+        inputs = await ledger.resolve_inputs(self.r, self.keys, step, strict=False)
+        items = [it for it in (inputs.get("items") or []) if isinstance(it, dict) and it.get("lane")]
+        if not items:
+            return rec
+        dec = rec.get("decision")
+        dec = dec if dec in (ap.APPROVE, ap.REJECT) else None
+        scores = rec.get("scores") or {}
+        for it in items:
+            lane = it["lane"]
+            d = it.get("draft") if isinstance(it.get("draft"), dict) else {}
+            per = {"decision": dec, "lane": lane, "step": step.id, "draft_step": it.get("draft_step"),
+                   "to": d.get("to") or it.get("to"), "subject": d.get("subject") or it.get("subject"),
+                   "score": scores.get(lane), "flags": [], "confidence": rec.get("confidence"),
+                   "threshold": rec.get("threshold"), "decided_by": rec.get("decided_by"),
+                   "model": rec.get("model"), "source": rec.get("source"),
+                   "escalation_id": rec.get("escalation_id")}
+            await ledger.commit_fact(self.r, self.keys, step.run_id, ap.approval_key(lane), per,
+                                     source_step=step.id, actor=self.agent_id)
+        facts = await ledger.get_facts(self.r, self.keys, step.run_id)
+        merged = {k.split(":", 1)[1]: v for k, v in facts.items()
+                  if k.startswith("approval:") and k != ap.BATCH_KEY and isinstance(v, dict)}
+        batch = ap.batch_record(merged, decided_by=str(rec.get("decided_by") or "meta-reviewer"), step_id=step.id,
+                                model=rec.get("model"), threshold=rec.get("threshold"))
+        return {**rec, "items": batch["items"], "approved": batch["approved"], "rejected": batch["rejected"],
+                "lanes": [it["lane"] for it in items], "batch_decision": batch["decision"]}
 
     async def _escalate(self, step: Step, fence: int, out: Outcome) -> str:
         d = out.decision

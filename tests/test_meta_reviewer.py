@@ -348,3 +348,67 @@ async def test_approval_step_end_to_end(r, keys):
     fact = (await ledger.get_facts(r, keys, run.id))["approval:emails"]
     assert fact["decision"] == "approve" and fact["confidence"] == 0.93 and fact["scores"] == {"lead:1": 0.96, "lead:3": 0.93}
     assert [e.type for e in await ledger.run_events(r, keys, run.id)].count(EventType.APPROVAL_AUTO) == 1
+
+
+async def _k_items_step(r, keys):
+    """Track K's real approval-step shape: inputs.items with draft fact refs."""
+    from ledger_core import approval
+
+    run = await ledger.create_run(r, keys, goal="approve emails", actor="test")
+    items = []
+    for i, d in enumerate(DRAFTS):
+        lane = d["id"]
+        await ledger.commit_fact(r, keys, run.id, approval.draft_key(lane),
+                                 {"lane": lane, "to": d["to"], "subject": d["subject"], "body": d["body"],
+                                  "draft_step": f"step_draft{i}"}, source_step=f"step_draft{i}", actor="test")
+        items.append({"lane": lane, "draft_step": f"step_draft{i}", "draft": f"fact:{approval.draft_key(lane)}",
+                      "to": d["to"], "subject": d["subject"], "approval_key": approval.approval_key(lane)})
+    step = Step(run_id=run.id, kind=K.REVIEW_APPROVAL, skill=Skill.REVIEW, lane=None, title="Approve 2 emails",
+                inputs={"items": items, "decision_key": approval.BATCH_KEY,
+                        "options": [{"label": "Approve all 2", "value": "approve"},
+                                    {"label": "Reject", "value": "reject"}]},
+                postcondition=Postcondition(check="review.decided",
+                                            args={"decision_key": approval.BATCH_KEY,
+                                                  "lanes": [d["id"] for d in DRAFTS], "kind": "approval"}))
+    await ledger.create_steps(r, keys, [step], actor="test")
+    await ledger.transition(r, keys, step.id, S.READY, actor="test", actor_role="orchestrator")
+    return run, step
+
+
+async def test_track_k_items_auto_approve_commit_per_email_facts(r, keys):
+    """W3 integration: the batch decision on Track K's items becomes approval:<lane>
+    facts pinned to recipient/subject/draft step, which is what the mailer reads."""
+    from ledger_core import approval
+
+    run, step = await _k_items_step(r, keys)
+    with judge_stub(0.96, 0.93).installed() as stub:
+        await reviewer(r, keys).run_until_idle()
+    assert len(stub.calls) == 1
+    await verify_all(r, keys)
+    assert (await ledger.get_step(r, keys, step.id)).status == S.COMMITTED
+    facts = await ledger.get_facts(r, keys, run.id)
+    for i, d in enumerate(DRAFTS):
+        rec = approval.approval_for(facts, d["id"], approval_step=step.id)
+        assert approval.is_approved(rec) and rec["to"] == d["to"] and rec["draft_step"] == f"step_draft{i}"
+        assert approval.mismatch(rec, {"to": d["to"], "subject": d["subject"], "draft_step": f"step_draft{i}"}) is None
+    batch = facts[approval.BATCH_KEY]
+    assert batch["approved"] == ["lead:1", "lead:3"] and batch["decision"] == "approve"
+
+
+async def test_track_k_items_escalated_then_rejected_sends_nothing(r, keys):
+    from ledger_core import approval
+
+    run, step = await _k_items_step(r, keys)
+    with judge_stub(0.96, 0.40).installed():
+        await reviewer(r, keys).run_until_idle()
+    facts = await ledger.get_facts(r, keys, run.id)
+    assert all(approval.approval_for(facts, d["id"]) is None for d in DRAFTS)  # nothing approved yet
+    esc = (await escalations.list_escalations(r, keys, run_id=run.id))[0]
+    await escalations.answer(r, keys, esc.id, "reject", by="tester")
+    await reviewer(r, keys).run_until_idle()
+    await verify_all(r, keys)
+    assert (await ledger.get_step(r, keys, step.id)).status == S.COMMITTED
+    facts = await ledger.get_facts(r, keys, run.id)
+    for d in DRAFTS:
+        rec = approval.approval_for(facts, d["id"])
+        assert rec["decision"] == "reject" and not approval.is_approved(rec)
