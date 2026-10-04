@@ -63,7 +63,13 @@ input[type='range'] { accent-color: var(--fg); margin: 0; }
   [data-noprint] { display: none !important; }
   html, body { background: #FFFFFF; }
   .print-plain { overflow: visible !important; height: auto !important; }
+  /* Collapsed and clamped text always prints in full. */
+  [data-collapsible-body] { display: flex !important; }
+  .ldg-clamp { -webkit-line-clamp: unset !important; display: block !important; overflow: visible !important; }
 }
+
+/* ClampText: long paragraphs show N lines until expanded. */
+.ldg-clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* React Flow: keep the instrument look */
 .react-flow__attribution { display: none; }

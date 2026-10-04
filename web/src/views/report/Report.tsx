@@ -7,7 +7,7 @@ import { reportToMarkdown } from '../../lib/reportMd';
 import { runVisual } from '../../lib/states';
 import { shortModel } from '../../lib/derive';
 import { CRITERION_STYLE } from '../dashboard/Criteria';
-import { Count, PillButton } from '../../components/ui';
+import { ClampText, Count, PillButton } from '../../components/ui';
 
 const OUT_C: Record<LeadOutcome, string> = { created: 'var(--s-committed)', updated: 'var(--s-leased)', skipped: 'var(--fg3)', waiting: 'var(--s-input)', failed: 'var(--s-rejected)' };
 const OUT_LABEL: Record<LeadOutcome, string> = { created: 'Created', updated: 'Updated', skipped: 'Skipped', waiting: 'Waiting on you', failed: 'Failed' };
@@ -268,7 +268,7 @@ export default function ReportView() {
                 <div key={i} className="grid gap-4 items-center px-4 py-3 border-b border-line" style={{ gridTemplateColumns: 'minmax(0,1.2fr) 200px minmax(0,1fr) 110px' }}>
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span className="text-base font-medium">{d.title}</span>
-                    <span className="text-xs+ text-fg3 text-pretty">{d.evidence.join(' · ')}</span>
+                    <ClampText text={d.evidence.join(' · ')} lines={2} className="text-xs+ text-fg3 text-pretty" />
                   </div>
                   <div className="flex flex-col gap-1">
                     <div className="relative h-2 rounded bg-bg2">
@@ -293,7 +293,7 @@ export default function ReportView() {
                 <div key={c.id} className="grid grid-cols-[90px_minmax(0,1fr)_minmax(0,1fr)] gap-3.5 px-4 py-[11px] border-b border-line items-start">
                   <span><span className="inline-flex px-2 py-0.5 rounded-[10px] text-xs font-medium tint-11" style={{ ['--c' as string]: col }}>{CRITERION_STYLE[c.status]?.icon} {c.status}</span></span>
                   <span className="text-base text-pretty">{c.text}</span>
-                  <span className="mono text-xs+ text-fg2 text-pretty">{c.evidence ?? c.check}</span>
+                  <ClampText text={c.evidence ?? c.check} lines={2} className="mono text-xs+ text-fg2 text-pretty" />
                 </div>
               );
             })}
