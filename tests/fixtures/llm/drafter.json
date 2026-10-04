@@ -1,0 +1,82 @@
+[
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:1",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Priya",
+      "body": "Hi Priya,\n\nThanks for stopping by our booth at Signal Summit. You mentioned you were curious about a Q1 pilot, and I would be glad to walk you through how other sales teams set one up. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nAlex Chen"
+    }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:2",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Marcus",
+      "body": "Hi Marcus,\n\nIt was good to catch up with you at Signal Summit. As Head of Operations at Acme Corp, you raised some sharp questions about keeping handoffs between teams simple, and I would enjoy hearing more. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
+    }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:3",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Lena",
+      "body": "Hi Lena,\n\nThank you for the conversation at Signal Summit. You asked about our API documentation, so I would be happy to go through it with you and answer any technical questions you have as CTO of Kestrel Labs. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
+    }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:4",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Dana",
+      "body": "Hi Dana,\n\nIt was a pleasure meeting you at Signal Summit. I enjoyed hearing how your R&D team at Helix Bio organises its research work, and I would like to learn more about what matters most to you. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nAlex Chen"
+    }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:5",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Tom",
+      "body": "Hi Tom,\n\nThanks for visiting our booth twice at Signal Summit. I appreciated your questions about logistics workflows at Orbital Freight and would be glad to continue the conversation. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
+    }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:8",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Hannah",
+      "body": "Hi Hannah,\n\nIt was great to meet you at Signal Summit. As the founder of Fieldstone you have a clear picture of where your team is heading, and I would love to hear more about it. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nAlex Chen"
+    }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:10",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Omar",
+      "body": "Hi Omar,\n\nThanks for the chat at Signal Summit. Revenue operations came up a lot that day, and as Head of RevOps at Brightline your perspective on it was especially useful to hear. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nAlex Chen"
+    }
+  },
+  {
+    "role": "worker",
+    "schema": "EmailDraft",
+    "fixture_key": "lead:12",
+    "model": "scripted:drafter.json",
+    "response": {
+      "subject": "Good to meet you at Signal Summit, Grace",
+      "body": "Hi Grace,\n\nIt was lovely to meet you at Signal Summit. I enjoyed our conversation about how Tallgrass runs its operations, and as COO you clearly have a sharp view of what works. Would you be open to a 20-minute call in the coming days? Just reply with a time that suits you.\n\nBest regards,\nRita Silva"
+    }
+  }
+]
