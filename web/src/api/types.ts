@@ -39,7 +39,7 @@ export const EVENT_TYPES = [
   'approval.auto', 'config.updated', 'run.config_updated', 'prompt.updated', 'tool.toggled', 'shell.opened',
   'model.fallback', 'llm.call', 'llm.cache_hit', 'llm.budget_exhausted', 'spend.cap_reached',
   'agent.registered', 'agent.lost', 'fault.injected', 'run.completed', 'run.completed_pending_input',
-  'run.failed',
+  'run.failed', 'run.status',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
