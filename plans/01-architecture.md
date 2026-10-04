@@ -273,6 +273,15 @@ meta-reviewer answers with a `task.artifact` whose data part is:
 - `make test-browser` collects the whole `tests/` tree inside the browser image, so test modules that need test-image-only libraries (e.g. `respx`) use `pytest.importorskip` instead of a bare import.
 - Contact `title` is stored by EspoCRM on the account link (`AccountContact.role`); contacts created without an account have no title, so planner expects must not include `title` for account-less leads (both the REST and browser skills behave this way).
 
+### Implementation notes (Track I, browser worker)
+
+- `browser_worker/worker.py`: `BrowserHandler` (worker_base handler for `browser.espocrm`) + `browser_card`. Inputs accept the planner / api.espocrm shape (`lead{...}`, `owner`, `contact_id`, `subject|event_name`, `due|event_date`); claim data uses the api.espocrm keys (`contact_id`, `action` created|exists, `task_id`, `result` matched|ambiguous|none, `candidates`) plus `channel: "browser"`. Screenshots go to `claim.evidence`; every skill observation becomes a `step.observation`.
+- Browser `crm.create_contact` needs `owner` in the inputs (the browser does not route; take it from the search step) and only links an Account that already exists (exact name), like the REST path.
+- A skill that gives up files a claim with `data.blocked=true, acted=false, fallback_skill="api.espocrm"`; the verifier decides (reject -> retry / replan).
+- Faults: `expire_session` and `ui_changed` (scoped `<fault>:browser.espocrm` first) are one-shot per step even when set to "on". `RunConfig.check_then_act=false` skips the existence check in create_contact / create_task.
+- LLM: only the recovery chooser (`BROWSER_LLM_RECOVERY=on`, role worker, schema-bounded to reload|relogin|home|give_up, falls back to the default policy on any error). Off by default to save the shared budget.
+- Demo knob `LEDGER_BROWSER_PAUSE="<checkpoint>:<seconds>[:<kind>]"` (e.g. `after_save:45:crm.create_contact`) holds a step so `make chaos-kill-browser` lands mid-step. `chaos-kill-browser` / `chaos-expire-session` fall back to Redis when the API is not up, and kill only the replica container (`docker kill $(compose ps -q ...)`), never one-off `run` containers.
+
 ## 6. Models (OpenRouter)
 
 Configured by role in `.env`, never hard-coded:
