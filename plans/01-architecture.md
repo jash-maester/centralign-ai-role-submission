@@ -437,6 +437,17 @@ approval, 8 drafts, 8 judge calls, a few browser decisions). So:
 - **Budget.** `llm.py` increments `llm:budget:{date}` before each live call
   and refuses (`llm.budget_exhausted`, treated like a model outage, no
   fallback) once `LLM_DAILY_REQUEST_BUDGET` is used.
+  **Track N:** the source of truth is now OpenRouter's own count
+  (`llm_budget.py`: `GET /api/v1/key` → `free_model_daily_requests`
+  {used, limit, remaining}, `limit_remaining` for paid models; cached 60 s,
+  plus the requests made since the fetch). A live call is refused once
+  `remaining <= LLM_BUDGET_RESERVE` (default 3). Without a key, or when the
+  check fails, a persistent per-UTC-day file counter under `LLM_CACHE_DIR/budget/`
+  (survives `make clean`) is enforced against `LLM_DAILY_REQUEST_BUDGET`. Every
+  live request increments that file; the Redis `llm:budget:{date}` key is now
+  only the stack's informational count. `GET /llm/budget` returns the same
+  numbers (`source`, `used`, `limit`, `remaining`, `reserve`, `usable`,
+  `local`, `ledger_used`, `live`), never the key.
 - **Fewer calls.** Fan-out and dependency release are deterministic code, not
   LLM calls. The email judge scores all drafts of a run in one call. Unit
   tests use the stub LLM; only the env-flagged smoke test calls OpenRouter.

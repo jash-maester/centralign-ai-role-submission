@@ -6,10 +6,15 @@ import { Chip, useNow } from '../../components/ui';
 
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 
-export function spendLine(budget: { spent_usd?: number; used: number; limit: number } | null, cap: number) {
+export function spendLine(budget: { spent_usd?: number; used: number; limit: number; source?: string } | null, cap: number) {
   const spent = budget?.spent_usd ?? 0;
-  return `$${spent.toFixed(2)} of $${cap.toFixed(2)}${budget ? ` · ${budget.used}/${budget.limit} free requests` : ''}`;
+  const src = budget?.source === 'local' ? ' (local count)' : '';
+  return `$${spent.toFixed(2)} of $${cap.toFixed(2)}${budget ? ` · ${budget.used}/${budget.limit} free requests${src}` : ''}`;
 }
+
+/** No live LLM call is left once remaining <= reserve (the LLM layer refuses). */
+export const budgetGone = (budget: { remaining: number; usable?: number } | null) =>
+  budget ? (budget.usable ?? budget.remaining) <= 0 : false;
 
 export function RunStrip() {
   const run = useLedger((s) => s.run);
@@ -24,7 +29,7 @@ export function RunStrip() {
   const { done, total } = committedCount(steps);
   if (!run) return null;
   const rv = runVisual(run.status);
-  const over = (budget?.spent_usd ?? 0) >= cap || (budget ? budget.remaining <= 0 : false);
+  const over = (budget?.spent_usd ?? 0) >= cap || budgetGone(budget);
   return (
     <section data-testid="run-strip" className="bg-panel border border-line rounded-[10px] px-[18px] py-3 flex items-center gap-4 flex-wrap shadow-card">
       <Chip c={rv.c} label={rv.label} size="md" />

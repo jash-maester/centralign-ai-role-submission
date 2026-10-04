@@ -27,6 +27,7 @@ dev = [
   "sse-starlette>=2.1",
   "docker>=7.1",
   "websockets>=13",
+  "ruff>=0.6",
 ]
 
 [build-system]

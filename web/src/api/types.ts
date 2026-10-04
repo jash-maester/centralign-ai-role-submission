@@ -261,6 +261,12 @@ export interface LlmBudget {
   used: number;
   limit: number;
   remaining: number;
+  /** "openrouter": the key's own daily count (GET /api/v1/key); "local": the persistent fallback counter. */
+  source?: 'openrouter' | 'local' | string;
+  /** Requests never spent (the LLM layer refuses once remaining <= reserve). */
+  reserve?: number;
+  /** remaining - reserve: what live calls may still use today. */
+  usable?: number;
   spent_usd?: number;
   cache_hits?: number;
   /** role -> model list, primary first (from .env, never hard-coded). */

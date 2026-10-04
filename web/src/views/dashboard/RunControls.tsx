@@ -135,7 +135,7 @@ export function RunControls() {
     ] },
     { title: 'Safety', items: [
       <Slider key="sc" label="Spend cap" value={c.spend_cap_usd} min={0.5} max={5} step={0.1} fmt={(v) => `$${v.toFixed(2)}`} onChange={p('spend_cap_usd')}
-        note={`$${spent.toFixed(2)} spent · ${c.spend_cap_usd ? Math.round((spent / c.spend_cap_usd) * 100) : 0}% of cap${budget ? ` · ${budget.used}/${budget.limit} free requests today` : ''}`} noteC={spent >= c.spend_cap_usd && spent > 0 ? RED : budget && budget.remaining <= 3 ? RED : null} />,
+        note={`$${spent.toFixed(2)} spent · ${c.spend_cap_usd ? Math.round((spent / c.spend_cap_usd) * 100) : 0}% of cap${budget ? ` · ${budget.used}/${budget.limit} free requests today` : ''}`} noteC={spent >= c.spend_cap_usd && spent > 0 ? RED : budget && budget.remaining <= (budget.reserve ?? 3) ? RED : null} />,
       <Slider key="fz" label="Fuzzy match threshold" value={c.fuzzy_match_threshold} min={0.7} max={0.99} step={0.01} fmt={f2} onChange={p('fuzzy_match_threshold')} note={`Name + company similarity ≥ ${c.fuzzy_match_threshold.toFixed(2)} proposes a match to the meta-reviewer`} />,
       <Switch key="dr" label="Dry run (do not send email)" on={c.dry_run} onChange={p('dry_run')} note={c.dry_run ? 'Emails approved and verified, not sent' : 'Mailer sends via SMTP'} />,
     ] },

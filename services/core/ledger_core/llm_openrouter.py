@@ -10,8 +10,11 @@ One call walks the role's model list (Settings.models_for(role)):
         parse + validate      (invalid: re-ask once)
         failure               -> model.fallback to the next model (if RunConfig.model_fallback)
 
-Every HTTP request is budgeted (Keys.llm_budget(day)), counted against the
-run (Keys.llm_spend(run_id)) and logged as an llm.call event.
+Every HTTP request is budgeted first (llm_budget.Budget: OpenRouter's own
+GET /key count when the key is set, a persistent per-day file counter under
+LLM_CACHE_DIR otherwise; a reserve is never spent), counted on the stack's
+Redis counter (Keys.llm_budget(day), informational) and against the run
+(Keys.llm_spend(run_id)), and logged as an llm.call event.
 
 Fault F4: when Keys.faults has `model_outage` set ("on" or a shot count), the
 primary model of the roles in MODEL_OUTAGE_ROLES is replaced by an invalid id,
@@ -21,7 +24,6 @@ so the provider rejects it and the call falls back.
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 import time
 from typing import Any
 
@@ -42,6 +44,8 @@ from .llm import (
     Role,
     record_call,
 )
+from .llm_budget import Budget, BudgetRefused
+from .llm_budget import utc_day as utc_day
 from .llm_cache import ResponseCache, digest
 from .protocol import Event, EventType, FaultName
 from .settings import Settings, get_settings
@@ -53,10 +57,6 @@ REASK = (
     "Your previous reply could not be used: {error}. "
     "Reply again with only a JSON object that matches the schema."
 )
-
-
-def utc_day(now: float | None = None) -> str:
-    return dt.datetime.fromtimestamp(now or time.time(), dt.UTC).strftime("%Y-%m-%d")
 
 
 class _ModelFailed(Exception):
@@ -100,11 +100,14 @@ class OpenRouterBackend:
         backoff_s: float = 2.0,
         max_backoff_s: float = 10.0,
         http: httpx.AsyncClient | None = None,
+        budget: Budget | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.sink = LedgerSink(r, keys, self.settings)
         self.cache = ResponseCache(cache_dir or self.settings.llm_cache_dir, cache_mode or self.settings.llm_cache)
         self.daily_budget = self.settings.llm_daily_request_budget if daily_budget is None else daily_budget
+        self.budget = budget or Budget(self.settings, cache_dir=cache_dir or self.settings.llm_cache_dir,
+                                       daily_budget=self.daily_budget)
         self.backoff_s = backoff_s
         self.max_backoff_s = max_backoff_s
         self.base_url = self.settings.openrouter_base_url.rstrip("/")
@@ -235,7 +238,7 @@ class OpenRouterBackend:
         """POST once, retrying once on 429/5xx/network errors. Returns message content."""
         last = "no attempt"
         for attempt in (1, 2):
-            await self._guard(cfg, run_id)
+            await self._guard(cfg, run_id, str(body.get("model") or ""))
             t0 = time.monotonic()
             retry_after: float | None = None
             status: int | None = None
@@ -276,8 +279,10 @@ class OpenRouterBackend:
 
     # ---- budget, spend, accounting ------------------------------------------
 
-    async def _guard(self, cfg: RunConfig, run_id: str | None) -> None:
-        """Refuse before a live request when the spend cap or daily budget is used."""
+    async def _guard(self, cfg: RunConfig, run_id: str | None, model: str = "") -> None:
+        """Refuse before a live request when the spend cap or the daily budget
+        (llm_budget: OpenRouter's count minus the reserve, else the local
+        counter) is used; otherwise count the request."""
         r, keys = self.sink.r, self.sink.keys
         if run_id:
             spent = float(await r.hget(keys.llm_spend(run_id), "usd") or 0.0)
@@ -287,17 +292,20 @@ class OpenRouterBackend:
                         "spent_usd": round(spent, 6), "cap_usd": cfg.spend_cap_usd,
                     }, run_id, None)
                 raise LLMSpendCapReached(f"spend cap reached: ${spent:.4f} of ${cfg.spend_cap_usd:.2f}")
-        day = utc_day()
-        budget_key = keys.llm_budget(day)
-        used = await r.incr(budget_key)
-        if used == 1:
-            await r.expire(budget_key, 3 * 86400)
-        if used > self.daily_budget:
-            await r.decr(budget_key)
+        try:
+            await self.budget.check(model)
+        except BudgetRefused as exc:
+            snap = exc.snapshot
             await self.sink.emit(EventType.LLM_BUDGET_EXHAUSTED, {
-                "day": day, "budget": self.daily_budget, "used": used - 1,
+                "day": snap.get("date"), "source": snap.get("source"), "budget": snap.get("limit"),
+                "used": snap.get("used"), "remaining": snap.get("remaining"), "reserve": snap.get("reserve"),
+                "model": model, "reason": str(exc),
             }, run_id, None)
-            raise LLMBudgetExhausted(f"daily LLM request budget used ({self.daily_budget} on {day})")
+            raise LLMBudgetExhausted(str(exc)) from exc
+        self.budget.record()
+        budget_key = keys.llm_budget(utc_day())  # this stack's count (informational; lost on down -v)
+        if await r.incr(budget_key) == 1:
+            await r.expire(budget_key, 3 * 86400)
 
     async def _account(self, info: CallInfo, usage: dict[str, Any], latency: int, ok: bool,
                        status: int | None, error: str | None, run_id: str | None, step_id: str | None) -> None:
