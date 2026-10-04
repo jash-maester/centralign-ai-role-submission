@@ -74,6 +74,40 @@
         "title": "AgentConfigPatch",
         "type": "object"
       },
+      "AnswerBody": {
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "by": {
+            "default": "human",
+            "title": "By",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "save_as_rule": {
+            "default": false,
+            "title": "Save As Rule",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "title": "AnswerBody",
+        "type": "object"
+      },
       "DeterminismBody": {
         "properties": {
           "level": {
@@ -98,6 +132,103 @@
           "level"
         ],
         "title": "DeterminismBody",
+        "type": "object"
+      },
+      "Escalation": {
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "context": {
+            "default": "",
+            "title": "Context",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "save_as_rule": {
+            "default": false,
+            "title": "Save As Rule",
+            "type": "boolean"
+          },
+          "status": {
+            "default": "open",
+            "enum": [
+              "open",
+              "answered"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "tried": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tried",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "step_id",
+          "question",
+          "options",
+          "confidence",
+          "threshold"
+        ],
+        "title": "Escalation",
         "type": "object"
       },
       "FaultBody": {
@@ -259,6 +390,29 @@
           }
         },
         "title": "ReplayBody",
+        "type": "object"
+      },
+      "ReviewOption": {
+        "properties": {
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "ReviewOption",
         "type": "object"
       },
       "ToolSpec": {
@@ -677,6 +831,163 @@
         "summary": "Inject",
         "tags": [
           "chaos"
+        ]
+      }
+    },
+    "/escalations": {
+      "get": {
+        "operationId": "list_open_escalations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "title": "Status",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Escalation"
+                  },
+                  "title": "Response List Open Escalations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Open",
+        "tags": [
+          "escalations"
+        ]
+      }
+    },
+    "/escalations/{esc_id}": {
+      "get": {
+        "operationId": "get_one_escalations__esc_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "esc_id",
+            "required": true,
+            "schema": {
+              "title": "Esc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Escalation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get One",
+        "tags": [
+          "escalations"
+        ]
+      },
+      "post": {
+        "operationId": "answer_escalations__esc_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "esc_id",
+            "required": true,
+            "schema": {
+              "title": "Esc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Answer Escalations  Esc Id  Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer",
+        "tags": [
+          "escalations"
         ]
       }
     },

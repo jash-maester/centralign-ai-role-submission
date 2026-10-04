@@ -28,6 +28,11 @@ in-process stand-ins for any agent the run needs that is not alive
 (orchestrator, parser, api.espocrm worker, verifier with the CRM reader), follows
 the events until the run finishes, and prints criteria verdicts, step counts and
 one line per lead lane. CRM_WRITE_PATH=api|browser|auto sets the route.
+
+`approvals list [--run R] [--all] [--json]` shows human escalations (Track J);
+`approvals answer ESC ANSWER [--save-as-rule] [--wait|--local]` answers one with
+an option value (e.g. link_account:<id>, skip): the decision fact is committed,
+input.answered emitted and that lane released.
 """
 
 from __future__ import annotations
@@ -57,6 +62,7 @@ from .protocol import (
     Skill,
     Step,
     StepKind,
+    StepStatus,
 )
 from .redis_conn import connect
 from .settings import get_settings
@@ -275,10 +281,28 @@ async def main_async(argv: list[str] | None = None) -> int:
     p.add_argument("--no-local", action="store_true",
                    help="do not start in-process stand-ins for missing agents (orchestrator, parser, api worker, verifier)")
     p.add_argument("--quiet", action="store_true", help="do not print every event")
+    p = sub.add_parser("approvals", help="human escalations (Track J): list | answer")
+    asub = p.add_subparsers(dest="approvals_cmd", required=True)
+    q = asub.add_parser("list", help="open escalations (all runs, or --run)")
+    q.add_argument("--run")
+    q.add_argument("--all", action="store_true", help="answered ones too")
+    q.add_argument("--json", action="store_true")
+    q = asub.add_parser("answer", help="answer an escalation with one of its option values (or labels)")
+    q.add_argument("escalation")
+    q.add_argument("answer")
+    q.add_argument("--save-as-rule", action="store_true", help="append the answer as a playbook rule")
+    q.add_argument("--by", default="cli")
+    q.add_argument("--note")
+    q.add_argument("--wait", action="store_true", help="follow the run until it settles again")
+    q.add_argument("--local", action="store_true",
+                   help="start in-process stand-ins for missing agents while waiting (implies --wait)")
+    q.add_argument("--timeout", type=float, default=120)
     a = ap.parse_args(argv)
 
     if a.cmd == "demo":
         return await cmd_demo(a)
+    if a.cmd == "approvals":
+        return await cmd_approvals(a)
     if a.cmd == "example":
         print(json.dumps(EXAMPLES[a.name], indent=2))
         return 0
@@ -413,7 +437,7 @@ async def cmd_demo(a: argparse.Namespace) -> int:
         overrides = _overrides(a)
         path = overrides.get("crm_write_path") or RunConfig().crm_write_path
         crm_skill = {"api": "api.espocrm", "browser": "browser.espocrm", "auto": "browser.espocrm"}[path]
-        need = ["orchestrator", "verifier", "file.parse", crm_skill]
+        need = ["orchestrator", "verifier", "file.parse", crm_skill, "review"]
         if path == "auto":
             need.append("api.espocrm")
         live = await served(r, keys)
@@ -442,6 +466,89 @@ async def cmd_demo(a: argparse.Namespace) -> int:
         return 0 if run.status in (RunStatus.COMPLETED, RunStatus.COMPLETED_PENDING_INPUT) else 1
     finally:
         await r.aclose()
+
+
+def format_escalation(e: Any) -> str:
+    lines = [f"{e.id}  run {e.run_id}  {e.lane or e.step_id}  [{e.status}]  confidence {e.confidence:.2f} "
+             f"< threshold {e.threshold:.2f}", f"  Q: {e.question}"]
+    for o in e.options:
+        lines.append(f"    - {o.value:<36} {o.label}" + (f"  ({o.detail})" if o.detail else ""))
+    for t in e.tried[:8]:
+        lines.append(f"  tried: {t}")
+    if e.answer:
+        lines.append(f"  answer: {e.answer}" + ("  (saved as playbook rule)" if e.save_as_rule else ""))
+    return "\n".join(lines)
+
+
+async def cmd_approvals(a: argparse.Namespace) -> int:
+    from . import escalations
+
+    r = connect()
+    keys = Keys(get_settings().ledger_ns)
+    try:
+        if a.approvals_cmd == "list":
+            items = await escalations.list_escalations(r, keys, run_id=a.run, status="all" if a.all else "open")
+            if a.json:
+                print(json.dumps([json.loads(e.model_dump_json()) for e in items], indent=2))
+            elif not items:
+                print("no open escalations" if not a.all else "no escalations")
+            else:
+                print("\n\n".join(format_escalation(e) for e in items))
+            return 0
+        try:
+            out = await escalations.answer(r, keys, a.escalation, a.answer, by=a.by, save_as_rule=a.save_as_rule,
+                                           note=a.note)
+        except escalations.EscalationError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        esc = out["escalation"]
+        print(f"answered {esc['id']} ({esc.get('lane')}): {esc['answer']} -> fact {out['fact_key']}; "
+              f"step {esc['step_id']} is {out['step_status']}")
+        if out.get("rule"):
+            print(f"saved playbook rule ({out['rule']['playbook']} v{out['rule']['version']}): {out['rule']['text']}")
+        if a.wait or a.local:
+            from contextlib import AsyncExitStack
+
+            from .orchestrator_lanes import lane_outcomes
+            from .orchestrator_local import LocalAgents
+
+            run_id = esc["run_id"]
+            async with AsyncExitStack() as stack:
+                if a.local:
+                    from . import postconditions
+
+                    postconditions.load_all()
+                    local = await stack.enter_async_context(LocalAgents(
+                        r, keys, need=["orchestrator", "verifier", "review", "api.espocrm"]))
+                    if local.started:
+                        print("in-process stand-ins: " + ", ".join(local.started))
+                await _wait_lane_settled(r, keys, run_id, esc.get("lane"), a.timeout)
+            run = await ledger.get_run(r, keys, run_id)
+            steps = await ledger.list_steps(r, keys, run_id)
+            facts = await ledger.get_facts(r, keys, run_id)
+            lanes = [x for x in lane_outcomes(steps, facts) if not esc.get("lane") or x["lane"] == esc.get("lane")]
+            print(f"run {run_id}: {run.status.value}")
+            print(format_lanes(lanes))
+        return 0
+    finally:
+        await r.aclose()
+
+
+async def _wait_lane_settled(r, keys: Keys, run_id: str, lane: str | None, timeout: float) -> None:
+    """Poll until the lane has no step moving (all terminal or waiting on a human) and the
+    run is in a done status again."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    moving = {StepStatus.READY, StepStatus.LEASED, StepStatus.CLAIMED_DONE, StepStatus.VERIFIED,
+              StepStatus.REJECTED, StepStatus.LEASE_EXPIRED, StepStatus.PLANNED}
+    await asyncio.sleep(1.0)
+    while loop.time() < deadline:
+        steps = [s for s in await ledger.list_steps(r, keys, run_id) if lane is None or s.lane == lane]
+        run = await ledger.get_run(r, keys, run_id)
+        if steps and not any(s.status in moving for s in steps) and run and run.status in RUN_DONE:
+            return
+        await asyncio.sleep(0.5)
+    print(f"(timeout after {timeout:.0f}s; the lane is still moving)")
 
 
 def _fact_sort(k: str) -> tuple:

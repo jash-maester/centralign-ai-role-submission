@@ -1,0 +1,55 @@
+[
+  {
+    "role": "meta_reviewer",
+    "schema": "ReviewDecision",
+    "fixture_key": "lead:7",
+    "model": "scripted:meta_reviewer.json",
+    "response": {
+      "decision": "match_existing",
+      "value": "Benjamin Ortiz",
+      "confidence": 0.91,
+      "threshold": 0.8,
+      "evidence": [
+        "same phone number as the CRM contact Benjamin Ortiz",
+        "same company (Quarry Data) and same title",
+        "lead email is a personal gmail address, so no email match was possible",
+        "Ben is a common short form of Benjamin"
+      ]
+    }
+  },
+  {
+    "role": "meta_reviewer",
+    "schema": "ReviewDecision",
+    "fixture_key": "lead:9",
+    "model": "scripted:meta_reviewer.json",
+    "response": {
+      "decision": "link_account",
+      "value": "Lumen Inc",
+      "confidence": 0.52,
+      "threshold": 0.8,
+      "evidence": [
+        "two CRM accounts are named Lumen: Lumen Inc and Lumen Health",
+        "both list the website lumen.io, the lead's email domain",
+        "the lead has no country, so region does not separate them",
+        "the badge says only \"Lumen\"; a slight lean to Lumen Inc as the older account"
+      ]
+    }
+  },
+  {
+    "role": "meta_reviewer",
+    "schema": "ReviewDecision",
+    "fixture_key": "lead:11",
+    "model": "scripted:meta_reviewer.json",
+    "response": {
+      "decision": "skip",
+      "value": null,
+      "confidence": 0.88,
+      "threshold": 0.8,
+      "evidence": [
+        "row has no email address, only a phone number",
+        "no company given, so it cannot be a strategic account",
+        "playbook: phone-only rows are skipped unless the company is a strategic account"
+      ]
+    }
+  }
+]
