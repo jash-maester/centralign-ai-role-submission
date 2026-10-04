@@ -6,7 +6,7 @@ RUN ?=
 LEVEL ?= 1.0
 ARGS ?=
 
-.PHONY: help up down build logs ps seed snapshot test test-unit test-crm test-browser test-live \
+.PHONY: help up down build logs ps seed snapshot lint test test-unit test-crm test-browser test-live \
         demo schema openapi clean chaos-false-claim chaos-kill-browser chaos-expire-session \
         chaos-model-outage determinism replay web-check
 
@@ -34,6 +34,9 @@ seed:  ## seed EspoCRM (idempotent)
 
 snapshot:  ## print a canonical digest of CRM state (seed idempotency check)
 	$(DC) run --rm seed python -m ledger_core.seed --snapshot
+
+lint:  ## ruff check on services/ and tests/ (ruff.toml), inside the test image
+	$(DC) run --rm --no-deps -v ./ruff.toml:/repo/ruff.toml:ro test ruff check --no-cache services tests $(ARGS)
 
 test:  ## full suite: unit + CRM integration (needs `make up && make seed`)
 	$(DC) run --rm test pytest -p no:cacheprovider -q -m "not live_llm and not e2e" tests $(ARGS)
