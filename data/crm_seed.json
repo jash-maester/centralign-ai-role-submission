@@ -1,0 +1,24 @@
+{
+  "users": [
+    {"userName": "a.chen", "firstName": "Alex", "lastName": "Chen", "emailAddress": "a.chen@ledger-demo.test", "region": "Americas"},
+    {"userName": "r.silva", "firstName": "Rita", "lastName": "Silva", "emailAddress": "r.silva@ledger-demo.test", "region": "EMEA"}
+  ],
+  "accounts": [
+    {"key": "acme", "name": "Acme Corp", "website": "acme.com", "billingAddressCountry": "United Kingdom", "assignedUser": "r.silva"},
+    {"key": "fieldstone", "name": "Fieldstone", "website": "fieldstone.dev", "billingAddressCountry": "United States", "assignedUser": "a.chen"},
+    {"key": "quarry", "name": "Quarry Data", "website": "quarrydata.com", "billingAddressCountry": "United States", "assignedUser": "a.chen"},
+    {"key": "lumen_inc", "name": "Lumen Inc", "website": "lumen.io", "billingAddressCountry": "Germany", "description": "EMEA", "assignedUser": "r.silva"},
+    {"key": "lumen_health", "name": "Lumen Health", "website": "lumen.io", "billingAddressCountry": "United States", "description": "US", "assignedUser": "a.chen"}
+  ],
+  "contacts": [
+    {"firstName": "Marcus", "lastName": "Lee", "emailAddress": "marcus.lee@acme.com", "phoneNumber": "+442079460958", "title": "Head of Operations", "account": "acme", "assignedUser": "r.silva"},
+    {"firstName": "Hannah", "lastName": "Cole", "emailAddress": "hannah@fieldstone.dev", "phoneNumber": "+12125550177", "title": "Founder", "account": "fieldstone", "assignedUser": "a.chen"},
+    {"firstName": "Benjamin", "lastName": "Ortiz", "emailAddress": "benjamin@quarrydata.com", "phoneNumber": "+14155550119", "title": "Data Engineering Manager", "account": "quarry", "assignedUser": "a.chen"},
+    {"firstName": "Katrin", "lastName": "Vogel", "emailAddress": "katrin.vogel@lumen.io", "title": "Head of IT", "account": "lumen_inc", "assignedUser": "r.silva"},
+    {"firstName": "Jonas", "lastName": "Brandt", "emailAddress": "jonas.brandt@lumen.io", "title": "Procurement", "account": "lumen_inc", "assignedUser": "r.silva"},
+    {"firstName": "Maya", "lastName": "Patel", "emailAddress": "maya.patel@lumen.io", "title": "Clinical Ops Lead", "account": "lumen_health", "assignedUser": "a.chen"}
+  ],
+  "opportunities": [
+    {"name": "Quarry Data - Platform expansion", "account": "quarry", "contacts": ["benjamin@quarrydata.com"], "stage": "Negotiation", "amount": 48000, "closeDate": "2026-11-28", "assignedUser": "a.chen"}
+  ]
+}

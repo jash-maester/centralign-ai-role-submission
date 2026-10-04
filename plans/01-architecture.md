@@ -96,6 +96,12 @@ Compose requirements:
 | `run:{run_id}:determinism`  | Hash    | level 0..1, seed, derived temperature per role               |
 | `run:{run_id}:config`       | Hash    | Run controls (§6a) + `config_hash`; versioned via events     |
 | `llm:cache:{hash}`          | String  | Cached structured LLM response (§6b)                         |
+| `queue:verify`              | Stream  | Steps in `claimed_done` awaiting the verifier                |
+| `escalation:{id}` / `escalations:open` | Hash / Set | Human escalations (replaces v1 `approval:*`)      |
+| `config:crm`                | Hash    | Written by `make seed`: scoped CRM API keys, user/account ids |
+
+All keys are built through `ledger_core.keys.Keys(ns)`; a namespace prefix
+isolates tests and parallel stacks. Contracts live in `ledger_core/protocol.py`.
 | `llm:budget:{yyyy-mm-dd}`   | Counter | Free-model requests used today (§6b)                         |
 
 ### Step record
@@ -158,7 +164,8 @@ Rules that make it correct:
 `approval.auto`, `config.updated`, `prompt.updated`, `tool.toggled`,
 `shell.opened`, `model.fallback`, `agent.registered`, `agent.lost`,
 `fault.injected`, `run.completed`, `run.completed_pending_input`, `run.failed`,
-`run.config_updated`, `llm.cache_hit`, `llm.budget_exhausted`, `spend.cap_reached`.
+`run.config_updated`, `llm.cache_hit`, `llm.budget_exhausted`, `spend.cap_reached`,
+`step.replanned`, `step.stale_fence` (A4 logging), `llm.call` (tokens/cost per call).
 
 Every event: `{id, ts, run_id, step_id?, actor, type, payload}`.
 
@@ -332,6 +339,9 @@ roughly 25-30 LLM calls (understand, plan, 3 ambiguity reviews, 1 email
 approval, 8 drafts, 8 judge calls, a few browser decisions). So:
 
 - **Cache.** Key = sha256(role, model, messages, schema, temperature, seed).
+  Stored as files under `LLM_CACHE_DIR` (bind mount `./.cache/llm`, survives
+  `make clean`). Prompts never contain run/step ids or timestamps, so the same
+  inputs produce the same key across runs.
   At determinism 1.0 the cache makes "same inputs → same plan" true even when
   the provider ignores `seed`. Cache hits emit `llm.cache_hit` and count no
   budget. Tests and `make demo` reuse the cache; `LLM_CACHE=off` forces live
@@ -373,7 +383,14 @@ because D3 depends on it.
 | `crm.task_exists`          | Follow-up task linked to contact, due per playbook   |
 | `email.draft_valid`        | Deterministic: recipient, merge fields, no placeholders; then LLM judge vs. playbook tone rules |
 | `email.sent`               | Mailpit API shows message to recipient               |
+| `crm.lookup_matches`       | Search step: the claimed match (or no match) agrees with a REST query |
+| `review.decided`           | A decision fact exists: meta-reviewer at/above threshold, or a human answer |
 | `run.criteria_met`         | Final sweep of all success criteria                  |
+
+CRM credentials are scoped at the CRM itself (seeded by `make seed`): the
+verifier and meta-reviewer use the `ledger-verifier` API user with a
+**read-only** role; only the `api.espocrm` fallback skill gets the
+`ledger-writer` key; the browser operator logs in as `ledger.operator`.
 
 Key property: the operator acts through the **browser**; the verifier reads
 through the **REST API**. Action and verification use different channels, so

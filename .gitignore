@@ -1,2 +1,10 @@
 .env
 .DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+web/dist/
+evidence/
+.venv/
+.cache/

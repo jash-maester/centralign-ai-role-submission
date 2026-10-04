@@ -1,0 +1,1516 @@
+{
+  "enums": {
+    "EventType": [
+      "run.created",
+      "run.understood",
+      "plan.created",
+      "plan.revised",
+      "step.ready",
+      "step.leased",
+      "step.heartbeat_lost",
+      "step.lease_expired",
+      "step.observation",
+      "step.claimed",
+      "step.verified",
+      "step.rejected",
+      "step.committed",
+      "step.dead",
+      "step.replanned",
+      "step.stale_fence",
+      "fact.committed",
+      "input.requested",
+      "input.answered",
+      "review.requested",
+      "review.resolved",
+      "review.escalated",
+      "approval.auto",
+      "config.updated",
+      "run.config_updated",
+      "prompt.updated",
+      "tool.toggled",
+      "shell.opened",
+      "model.fallback",
+      "llm.call",
+      "llm.cache_hit",
+      "llm.budget_exhausted",
+      "spend.cap_reached",
+      "agent.registered",
+      "agent.lost",
+      "fault.injected",
+      "run.completed",
+      "run.completed_pending_input",
+      "run.failed"
+    ],
+    "RunStatus": [
+      "created",
+      "understanding",
+      "planning",
+      "running",
+      "completed",
+      "completed_pending_input",
+      "failed"
+    ],
+    "Skill": [
+      "file.parse",
+      "browser.espocrm",
+      "api.espocrm",
+      "email.draft",
+      "email.send",
+      "review",
+      "human"
+    ],
+    "StepKind": [
+      "file.parse",
+      "crm.search_contact",
+      "crm.create_contact",
+      "crm.update_contact",
+      "crm.create_task",
+      "email.draft",
+      "email.send",
+      "review.ambiguity",
+      "review.approval",
+      "human.decide",
+      "run.verify"
+    ],
+    "StepStatus": [
+      "planned",
+      "ready",
+      "leased",
+      "claimed_done",
+      "verified",
+      "committed",
+      "rejected",
+      "replanned",
+      "lease_expired",
+      "review_required",
+      "input_required",
+      "dead"
+    ]
+  },
+  "legal_transitions": {
+    "claimed_done": [
+      "dead",
+      "rejected",
+      "verified"
+    ],
+    "committed": [],
+    "dead": [],
+    "input_required": [
+      "dead",
+      "ready"
+    ],
+    "lease_expired": [
+      "dead",
+      "ready"
+    ],
+    "leased": [
+      "claimed_done",
+      "dead",
+      "lease_expired",
+      "review_required"
+    ],
+    "planned": [
+      "dead",
+      "ready",
+      "replanned"
+    ],
+    "ready": [
+      "dead",
+      "leased",
+      "replanned"
+    ],
+    "rejected": [
+      "dead",
+      "ready",
+      "replanned"
+    ],
+    "replanned": [],
+    "review_required": [
+      "dead",
+      "input_required",
+      "ready"
+    ],
+    "verified": [
+      "committed",
+      "dead"
+    ]
+  },
+  "models": {
+    "AgentCard": {
+      "$defs": {
+        "AgentSkill": {
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/Skill"
+            },
+            "kinds": {
+              "items": {
+                "$ref": "#/$defs/StepKind"
+              },
+              "title": "Kinds",
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "kinds"
+          ],
+          "title": "AgentSkill",
+          "type": "object"
+        },
+        "Skill": {
+          "enum": [
+            "file.parse",
+            "browser.espocrm",
+            "api.espocrm",
+            "email.draft",
+            "email.send",
+            "review",
+            "human"
+          ],
+          "title": "Skill",
+          "type": "string"
+        },
+        "StepKind": {
+          "enum": [
+            "file.parse",
+            "crm.search_contact",
+            "crm.create_contact",
+            "crm.update_contact",
+            "crm.create_task",
+            "email.draft",
+            "email.send",
+            "review.ambiguity",
+            "review.approval",
+            "human.decide",
+            "run.verify"
+          ],
+          "title": "StepKind",
+          "type": "string"
+        },
+        "ToolSpec": {
+          "properties": {
+            "detail": {
+              "default": "",
+              "title": "Detail",
+              "type": "string"
+            },
+            "enabled": {
+              "default": true,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "locked_reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Locked Reason"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "rest",
+                "mcp",
+                "function",
+                "browser",
+                "smtp",
+                "llm"
+              ],
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "name"
+          ],
+          "title": "ToolSpec",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "container": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "model_role": {
+          "anyOf": [
+            {
+              "enum": [
+                "orchestrator",
+                "worker",
+                "verifier",
+                "meta_reviewer"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Role"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "orchestrator",
+            "verifier",
+            "meta_reviewer",
+            "worker",
+            "human"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "side_effects": {
+          "default": false,
+          "title": "Side Effects",
+          "type": "boolean"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/AgentSkill"
+          },
+          "title": "Skills",
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ToolSpec"
+          },
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role"
+      ],
+      "title": "AgentCard",
+      "type": "object"
+    },
+    "Envelope": {
+      "$defs": {
+        "Part": {
+          "properties": {
+            "data": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Data"
+            },
+            "kind": {
+              "enum": [
+                "data",
+                "file",
+                "text"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "text": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Text"
+            },
+            "uri": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uri"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "Part",
+          "type": "object"
+        },
+        "Skill": {
+          "enum": [
+            "file.parse",
+            "browser.espocrm",
+            "api.espocrm",
+            "email.draft",
+            "email.send",
+            "review",
+            "human"
+          ],
+          "title": "Skill",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "fence": {
+          "default": 0,
+          "title": "Fence",
+          "type": "integer"
+        },
+        "from": {
+          "title": "From",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/Part"
+          },
+          "title": "Parts",
+          "type": "array"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "submitted",
+            "working",
+            "input-required",
+            "completed",
+            "failed"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "to_skill": {
+          "$ref": "#/$defs/Skill"
+        },
+        "ts": {
+          "title": "Ts",
+          "type": "integer"
+        },
+        "type": {
+          "enum": [
+            "task.submit",
+            "task.status",
+            "task.artifact",
+            "task.cancel"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "task_id",
+        "from",
+        "to_skill",
+        "type",
+        "state"
+      ],
+      "title": "Envelope",
+      "type": "object"
+    },
+    "Escalation": {
+      "$defs": {
+        "ReviewOption": {
+          "properties": {
+            "detail": {
+              "default": "",
+              "title": "Detail",
+              "type": "string"
+            },
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "value": {
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": [
+            "label",
+            "value"
+          ],
+          "title": "ReviewOption",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "answer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "number"
+        },
+        "context": {
+          "default": "",
+          "title": "Context",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lane": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lane"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/ReviewOption"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "save_as_rule": {
+          "default": false,
+          "title": "Save As Rule",
+          "type": "boolean"
+        },
+        "status": {
+          "default": "open",
+          "enum": [
+            "open",
+            "answered"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "step_id": {
+          "title": "Step Id",
+          "type": "string"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        },
+        "tried": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tried",
+          "type": "array"
+        }
+      },
+      "required": [
+        "run_id",
+        "step_id",
+        "question",
+        "options",
+        "confidence",
+        "threshold"
+      ],
+      "title": "Escalation",
+      "type": "object"
+    },
+    "Event": {
+      "$defs": {
+        "EventType": {
+          "enum": [
+            "run.created",
+            "run.understood",
+            "plan.created",
+            "plan.revised",
+            "step.ready",
+            "step.leased",
+            "step.heartbeat_lost",
+            "step.lease_expired",
+            "step.observation",
+            "step.claimed",
+            "step.verified",
+            "step.rejected",
+            "step.committed",
+            "step.dead",
+            "step.replanned",
+            "step.stale_fence",
+            "fact.committed",
+            "input.requested",
+            "input.answered",
+            "review.requested",
+            "review.resolved",
+            "review.escalated",
+            "approval.auto",
+            "config.updated",
+            "run.config_updated",
+            "prompt.updated",
+            "tool.toggled",
+            "shell.opened",
+            "model.fallback",
+            "llm.call",
+            "llm.cache_hit",
+            "llm.budget_exhausted",
+            "spend.cap_reached",
+            "agent.registered",
+            "agent.lost",
+            "fault.injected",
+            "run.completed",
+            "run.completed_pending_input",
+            "run.failed"
+          ],
+          "title": "EventType",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "actor": {
+          "title": "Actor",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "step_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step Id"
+        },
+        "ts": {
+          "title": "Ts",
+          "type": "integer"
+        },
+        "type": {
+          "$ref": "#/$defs/EventType"
+        }
+      },
+      "required": [
+        "actor",
+        "type"
+      ],
+      "title": "Event",
+      "type": "object"
+    },
+    "Fact": {
+      "properties": {
+        "committed_at": {
+          "title": "Committed At",
+          "type": "integer"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "source_step": {
+          "title": "Source Step",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value"
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "source_step"
+      ],
+      "title": "Fact",
+      "type": "object"
+    },
+    "ReviewDecision": {
+      "$defs": {
+        "ReviewOption": {
+          "properties": {
+            "detail": {
+              "default": "",
+              "title": "Detail",
+              "type": "string"
+            },
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "value": {
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": [
+            "label",
+            "value"
+          ],
+          "title": "ReviewOption",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "confidence": {
+          "title": "Confidence",
+          "type": "number"
+        },
+        "decided_by": {
+          "default": "meta-reviewer",
+          "title": "Decided By",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "link_account",
+            "match_existing",
+            "create_new",
+            "skip",
+            "approve",
+            "reject"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/ReviewOption"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "decision",
+        "confidence",
+        "threshold"
+      ],
+      "title": "ReviewDecision",
+      "type": "object"
+    },
+    "Run": {
+      "$defs": {
+        "Criterion": {
+          "properties": {
+            "check": {
+              "title": "Check",
+              "type": "string"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Evidence"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "status": {
+              "default": "pending",
+              "enum": [
+                "pending",
+                "verified",
+                "waived",
+                "failed"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "text": {
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "check"
+          ],
+          "title": "Criterion",
+          "type": "object"
+        },
+        "RunStatus": {
+          "enum": [
+            "created",
+            "understanding",
+            "planning",
+            "running",
+            "completed",
+            "completed_pending_input",
+            "failed"
+          ],
+          "title": "RunStatus",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "config_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Hash"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "criteria": {
+          "items": {
+            "$ref": "#/$defs/Criterion"
+          },
+          "title": "Criteria",
+          "type": "array"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "goal": {
+          "title": "Goal",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "input_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input File"
+        },
+        "input_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Sha256"
+        },
+        "playbook": {
+          "default": "event-leads.md",
+          "title": "Playbook",
+          "type": "string"
+        },
+        "playbook_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Playbook Hash"
+        },
+        "replay_of": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replay Of"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus",
+          "default": "created"
+        }
+      },
+      "required": [
+        "goal"
+      ],
+      "title": "Run",
+      "type": "object"
+    },
+    "RunConfig": {
+      "properties": {
+        "always_ask_human_email": {
+          "default": false,
+          "title": "Always Ask Human Email",
+          "type": "boolean"
+        },
+        "approval_auto_threshold": {
+          "default": 0.9,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Approval Auto Threshold",
+          "type": "number"
+        },
+        "browser_concurrency": {
+          "default": 2,
+          "maximum": 2,
+          "minimum": 1,
+          "title": "Browser Concurrency",
+          "type": "integer"
+        },
+        "check_then_act": {
+          "default": true,
+          "title": "Check Then Act",
+          "type": "boolean"
+        },
+        "crm_write_path": {
+          "default": "browser",
+          "enum": [
+            "browser",
+            "auto",
+            "api"
+          ],
+          "title": "Crm Write Path",
+          "type": "string"
+        },
+        "determinism": {
+          "default": 0.8,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Determinism",
+          "type": "number"
+        },
+        "dry_run": {
+          "default": false,
+          "title": "Dry Run",
+          "type": "boolean"
+        },
+        "fuzzy_match_threshold": {
+          "default": 0.85,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Fuzzy Match Threshold",
+          "type": "number"
+        },
+        "lease_ttl_s": {
+          "default": 15,
+          "maximum": 300,
+          "minimum": 3,
+          "title": "Lease Ttl S",
+          "type": "integer"
+        },
+        "llm_judge_enabled": {
+          "default": true,
+          "title": "Llm Judge Enabled",
+          "type": "boolean"
+        },
+        "max_attempts": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "model_fallback": {
+          "default": true,
+          "title": "Model Fallback",
+          "type": "boolean"
+        },
+        "replan_after_rejections": {
+          "default": 2,
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Replan After Rejections",
+          "type": "integer"
+        },
+        "review_auto_threshold": {
+          "default": 0.8,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Review Auto Threshold",
+          "type": "number"
+        },
+        "seed": {
+          "default": 42,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "seed_pinned": {
+          "default": true,
+          "title": "Seed Pinned",
+          "type": "boolean"
+        },
+        "spend_cap_usd": {
+          "default": 2.0,
+          "minimum": 0,
+          "title": "Spend Cap Usd",
+          "type": "number"
+        }
+      },
+      "title": "RunConfig",
+      "type": "object"
+    },
+    "Step": {
+      "$defs": {
+        "Attempt": {
+          "description": "One entry in step.history: a lease through to its verdict.",
+          "properties": {
+            "attempt": {
+              "title": "Attempt",
+              "type": "integer"
+            },
+            "claim": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Claim"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "ended_at": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Ended At"
+            },
+            "fence": {
+              "default": 0,
+              "title": "Fence",
+              "type": "integer"
+            },
+            "model": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Model"
+            },
+            "observations": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Observations",
+              "type": "array"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
+            },
+            "started_at": {
+              "title": "Started At",
+              "type": "integer"
+            },
+            "verdict": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Verdict"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "worker": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Worker"
+            }
+          },
+          "required": [
+            "attempt"
+          ],
+          "title": "Attempt",
+          "type": "object"
+        },
+        "Claim": {
+          "description": "What a worker says it did. Never trusted until verified.",
+          "properties": {
+            "acted": {
+              "default": true,
+              "title": "Acted",
+              "type": "boolean"
+            },
+            "data": {
+              "additionalProperties": true,
+              "title": "Data",
+              "type": "object"
+            },
+            "evidence": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Evidence",
+              "type": "array"
+            },
+            "fence": {
+              "title": "Fence",
+              "type": "integer"
+            },
+            "summary": {
+              "title": "Summary",
+              "type": "string"
+            },
+            "ts": {
+              "title": "Ts",
+              "type": "integer"
+            },
+            "worker": {
+              "title": "Worker",
+              "type": "string"
+            }
+          },
+          "required": [
+            "worker",
+            "fence",
+            "summary"
+          ],
+          "title": "Claim",
+          "type": "object"
+        },
+        "Postcondition": {
+          "properties": {
+            "args": {
+              "additionalProperties": true,
+              "title": "Args",
+              "type": "object"
+            },
+            "check": {
+              "title": "Check",
+              "type": "string"
+            },
+            "expect": {
+              "additionalProperties": true,
+              "title": "Expect",
+              "type": "object"
+            }
+          },
+          "required": [
+            "check"
+          ],
+          "title": "Postcondition",
+          "type": "object"
+        },
+        "Skill": {
+          "enum": [
+            "file.parse",
+            "browser.espocrm",
+            "api.espocrm",
+            "email.draft",
+            "email.send",
+            "review",
+            "human"
+          ],
+          "title": "Skill",
+          "type": "string"
+        },
+        "StepKind": {
+          "enum": [
+            "file.parse",
+            "crm.search_contact",
+            "crm.create_contact",
+            "crm.update_contact",
+            "crm.create_task",
+            "email.draft",
+            "email.send",
+            "review.ambiguity",
+            "review.approval",
+            "human.decide",
+            "run.verify"
+          ],
+          "title": "StepKind",
+          "type": "string"
+        },
+        "StepStatus": {
+          "enum": [
+            "planned",
+            "ready",
+            "leased",
+            "claimed_done",
+            "verified",
+            "committed",
+            "rejected",
+            "replanned",
+            "lease_expired",
+            "review_required",
+            "input_required",
+            "dead"
+          ],
+          "title": "StepStatus",
+          "type": "string"
+        },
+        "Verdict": {
+          "properties": {
+            "check": {
+              "title": "Check",
+              "type": "string"
+            },
+            "model": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Model"
+            },
+            "observed": {
+              "additionalProperties": true,
+              "title": "Observed",
+              "type": "object"
+            },
+            "ok": {
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "reason": {
+              "title": "Reason",
+              "type": "string"
+            },
+            "ts": {
+              "title": "Ts",
+              "type": "integer"
+            },
+            "verifier": {
+              "default": "verifier",
+              "title": "Verifier",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "check",
+            "reason"
+          ],
+          "title": "Verdict",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "attempt": {
+          "default": 0,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Claim"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "fence": {
+          "default": 0,
+          "title": "Fence",
+          "type": "integer"
+        },
+        "history": {
+          "items": {
+            "$ref": "#/$defs/Attempt"
+          },
+          "title": "History",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "kind": {
+          "$ref": "#/$defs/StepKind"
+        },
+        "lane": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lane"
+        },
+        "lease_owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lease Owner"
+        },
+        "max_attempts": {
+          "default": 3,
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "postcondition": {
+          "$ref": "#/$defs/Postcondition"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "side_effect": {
+          "default": false,
+          "title": "Side Effect",
+          "type": "boolean"
+        },
+        "skill": {
+          "$ref": "#/$defs/Skill"
+        },
+        "status": {
+          "$ref": "#/$defs/StepStatus",
+          "default": "planned"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "integer"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "run_id",
+        "kind",
+        "skill",
+        "postcondition"
+      ],
+      "title": "Step",
+      "type": "object"
+    }
+  }
+}

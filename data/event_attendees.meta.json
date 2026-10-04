@@ -1,0 +1,6 @@
+{
+  "file": "event_attendees.csv",
+  "event_name": "Signal Summit",
+  "event_date": null,
+  "_note": "event_date null means the day before the run (the goal says 'yesterday's event')"
+}

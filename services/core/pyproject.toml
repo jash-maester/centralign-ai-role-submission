@@ -1,0 +1,37 @@
+[project]
+name = "ledger-core"
+version = "0.1.0"
+description = "Ledger: coordination substrate, agents and workers"
+requires-python = ">=3.12"
+# All runtime deps for every build track are declared here up front so
+# parallel tracks don't fight over this file.
+dependencies = [
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "redis>=5.2",
+  "httpx>=0.28",
+  "pyyaml>=6.0",
+  "phonenumbers>=8.13",
+  "rapidfuzz>=3.10",
+  "aiosmtplib>=3.0",
+  "python-dateutil>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "respx>=0.21",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "sse-starlette>=2.1",
+  "docker>=7.1",
+  "websockets>=13",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ledger_core*"]

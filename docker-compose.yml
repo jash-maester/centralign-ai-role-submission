@@ -1,0 +1,240 @@
+# Ledger: one command brings up the whole system (plans/01-architecture.md §1).
+# Every service is declared here up front so build tracks only replace module
+# code, never this file. Host ports come from .env so several git worktrees can
+# run stacks side by side.
+
+x-core: &core
+  build:
+    context: .
+    dockerfile: services/core/Dockerfile
+    target: runtime
+  image: ledger-core:${IMAGE_TAG:-dev}
+  env_file: .env
+  environment: &core-env
+    REDIS_URL: redis://redis:6379/0
+    PLAYBOOK_DIR: /app/playbooks
+    DATA_DIR: /app/data
+    EVIDENCE_DIR: /evidence
+    SMTP_HOST: mailpit
+    SMTP_PORT: "1025"
+    MAILPIT_API_URL: http://mailpit:8025
+    LLM_CACHE_DIR: /llm-cache
+  volumes:
+    - ./playbooks:/app/playbooks
+    - ./data:/app/data:ro
+    - evidence:/evidence
+    - ./.cache/llm:/llm-cache
+  depends_on: &core-deps
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  stop_grace_period: 5s
+
+x-browser: &browser
+  build:
+    context: .
+    dockerfile: services/browser/Dockerfile
+  image: ledger-browser:${IMAGE_TAG:-dev}
+  env_file: .env
+  environment: &browser-env
+    REDIS_URL: redis://redis:6379/0
+    PLAYBOOK_DIR: /app/playbooks
+    DATA_DIR: /app/data
+    EVIDENCE_DIR: /evidence
+    LLM_CACHE_DIR: /llm-cache
+  volumes:
+    - ./playbooks:/app/playbooks:ro
+    - ./data:/app/data:ro
+    - evidence:/evidence
+    - ./.cache/llm:/llm-cache
+  depends_on:
+    redis:
+      condition: service_healthy
+    espocrm:
+      condition: service_healthy
+  restart: unless-stopped
+  stop_grace_period: 5s
+  shm_size: 512m
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes: [redis-data:/data]
+    ports: ["127.0.0.1:${REDIS_PORT:-6379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  espocrm-db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: ${ESPO_DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: espocrm
+      MARIADB_USER: espocrm
+      MARIADB_PASSWORD: ${ESPO_DB_PASSWORD}
+    volumes: [db-data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  espocrm:
+    image: espocrm/espocrm:latest
+    environment:
+      ESPOCRM_DATABASE_PLATFORM: Mysql
+      ESPOCRM_DATABASE_HOST: espocrm-db
+      ESPOCRM_DATABASE_NAME: espocrm
+      ESPOCRM_DATABASE_USER: espocrm
+      ESPOCRM_DATABASE_PASSWORD: ${ESPO_DB_PASSWORD}
+      ESPOCRM_ADMIN_USERNAME: ${ESPO_ADMIN_USER}
+      ESPOCRM_ADMIN_PASSWORD: ${ESPO_ADMIN_PASSWORD}
+      ESPOCRM_SITE_URL: ${CRM_PUBLIC_URL}
+    # EspoCRM 10 layout: mount only these (mounting /var/www/html = legacy mode, no auto-install).
+    volumes:
+      - espocrm-data:/var/www/html/data
+      - espocrm-custom:/var/www/html/custom
+      - espocrm-client-custom:/var/www/html/client/custom
+    ports: ["127.0.0.1:${ESPO_PORT:-8080}:80"]
+    depends_on:
+      espocrm-db:
+        condition: service_healthy
+    healthcheck:
+      # Installed and serving the API = unauthenticated call answers 401.
+      test: ["CMD-SHELL", "test \"$$(curl -s -o /dev/null -w '%{http_code}' http://localhost/api/v1/App/user)\" = 401"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["127.0.0.1:${MAILPIT_PORT:-8025}:8025"]
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    image: ledger-api:${IMAGE_TAG:-dev}
+    env_file: .env
+    environment:
+      <<: *core-env
+    volumes:
+      - ./playbooks:/app/playbooks
+      - ./data:/app/data:ro
+      - evidence:/evidence
+      - ./.cache/llm:/llm-cache
+    ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status == 200 else 1)"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  orchestrator:
+    <<: *core
+    command: ["python", "-m", "ledger_core.services.orchestrator"]
+    environment: { <<: *core-env, AGENT_ID: orchestrator }
+
+  verifier:
+    <<: *core
+    command: ["python", "-m", "ledger_core.services.verifier"]
+    environment: { <<: *core-env, AGENT_ID: verifier }
+
+  meta-reviewer:
+    <<: *core
+    command: ["python", "-m", "ledger_core.services.meta_reviewer"]
+    environment: { <<: *core-env, AGENT_ID: meta-reviewer }
+
+  worker-parser:
+    <<: *core
+    command: ["python", "-m", "ledger_core.services.worker_parser"]
+    environment: { <<: *core-env, AGENT_ID: worker-parser }
+
+  worker-drafter:
+    <<: *core
+    command: ["python", "-m", "ledger_core.services.worker_drafter"]
+    environment: { <<: *core-env, AGENT_ID: worker-drafter }
+
+  worker-mailer:
+    <<: *core
+    command: ["python", "-m", "ledger_core.services.worker_mailer"]
+    environment: { <<: *core-env, AGENT_ID: worker-mailer }
+
+  worker-browser-1:
+    <<: *browser
+    command: ["python", "-m", "browser_worker"]
+    environment: { <<: *browser-env, AGENT_ID: worker-browser-1 }
+
+  worker-browser-2:
+    <<: *browser
+    command: ["python", "-m", "browser_worker"]
+    environment: { <<: *browser-env, AGENT_ID: worker-browser-2 }
+
+  web:
+    build:
+      context: ./web
+    image: ledger-web:${IMAGE_TAG:-dev}
+    ports: ["127.0.0.1:${WEB_PORT:-3000}:80"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---- one-shot tools (profile: tools) --------------------------------------
+  seed:
+    <<: *core
+    profiles: [tools]
+    restart: "no"
+    command: ["python", "-m", "ledger_core.seed"]
+    environment: { <<: *core-env, AGENT_ID: seed }
+    depends_on:
+      <<: *core-deps
+      espocrm:
+        condition: service_healthy
+
+  test:
+    build:
+      context: .
+      dockerfile: services/core/Dockerfile
+      target: test
+    image: ledger-core-test:${IMAGE_TAG:-dev}
+    profiles: [tools]
+    env_file: .env
+    environment:
+      <<: *core-env
+      PYTHONPATH: /repo/services/core:/repo/services/api
+      PYTHONDONTWRITEBYTECODE: "1"
+    working_dir: /repo
+    volumes:
+      - ./services:/repo/services:ro
+      - ./tests:/repo/tests:ro
+      - ./playbooks:/repo/playbooks:ro
+      - ./data:/repo/data:ro
+      - ./plans:/repo/plans:ro
+      - evidence:/evidence
+      - ./.cache/llm:/llm-cache
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["pytest", "-p", "no:cacheprovider", "-q", "tests"]
+
+volumes:
+  redis-data:
+  espocrm-data:
+  espocrm-custom:
+  espocrm-client-custom:
+  db-data:
+  evidence:
