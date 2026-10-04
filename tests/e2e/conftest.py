@@ -24,7 +24,11 @@ def api() -> Api:
 
 @pytest.fixture(scope="session")
 def crm() -> Crm:
-    return Crm()
+    c = Crm()
+    yield c
+    # leave the CRM as `make seed` made it, so `make test` (CRM lookups) is not
+    # polluted by the demo contacts and review edits the scenarios wrote
+    c.reset()
 
 
 @pytest.fixture(scope="session")

@@ -603,17 +603,17 @@ class Orchestrator:
         steps = await ledger.list_steps(self.r, self.keys, run.id)
         if not steps:
             return run
-        if basis is not None and _fingerprint(steps) != basis:
-            # Track M race fix: a step changed (e.g. the parse committed) after this
-            # round's fan-out / lane decisions read the ledger. Finishing now would
-            # judge the run on state nobody acted on (a run "completed" with zero
-            # lanes); the next tick progresses it with fresh state first.
-            return run
         waiting, moving = await self.waiting_and_moving(steps)
         if moving:
             if run.status == RunStatus.COMPLETED_PENDING_INPUT:
                 run = await ledger.set_run_status(self.r, self.keys, run.id, RunStatus.RUNNING, actor=self.agent_id,
                                                   reason="work resumed")
+            return run
+        if basis is not None and _fingerprint(steps) != basis:
+            # Track M race fix: a step changed (e.g. the parse committed) after this
+            # round's fan-out / lane decisions read the ledger. Finishing now would
+            # judge the run on state nobody acted on (a run "completed" with zero
+            # lanes); the next tick progresses it with fresh state first.
             return run
         fingerprint = _fingerprint(steps)
         if run.status == RunStatus.COMPLETED_PENDING_INPUT and self._last_finish.get(run.id) == fingerprint:
