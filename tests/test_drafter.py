@@ -128,11 +128,12 @@ async def test_judge_rejection_feeds_next_attempt(r, keys):
 
 
 async def test_scripted_fixtures_give_the_eight_demo_drafts():
-    """Every demo draft in tests/fixtures/llm/drafter.json passes email.draft_valid."""
+    """Every demo draft in tests/fixtures/llm/drafter.json passes email.draft_valid.
+    Row 9 (Sam Ito) is drafted only after a human answers his escalation (Track L GUI demo)."""
     postconditions.load_all()
     owners = {1: "Alex Chen", 2: "Rita Silva", 3: "Rita Silva", 4: "Alex Chen", 5: "Rita Silva", 8: "Alex Chen",
-              10: "Alex Chen", 12: "Rita Silva"}
-    firsts = {1: "Priya", 2: "Marcus", 3: "Lena", 4: "Dana", 5: "Tom", 8: "Hannah", 10: "Omar", 12: "Grace"}
+              9: "Rita Silva", 10: "Alex Chen", 12: "Rita Silva"}
+    firsts = {1: "Priya", 2: "Marcus", 3: "Lena", 4: "Dana", 5: "Tom", 8: "Hannah", 9: "Sam", 10: "Omar", 12: "Grace"}
     fx = json.loads((REPO / "tests/fixtures/llm/drafter.json").read_text())
     assert sorted(int(f["fixture_key"].split(":")[1]) for f in fx) == sorted(owners)
     backend = ScriptedBackend(REPO / "tests/fixtures/llm", emit_events=False)
