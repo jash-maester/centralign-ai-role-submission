@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { buildRunScript, samLaneBeats, toEvent } from '../api/mock/script';
-import { emptySlice, reduceEvent } from '../store/reduce';
+import { emptySlice, reduceEvent, type RunSlice } from '../store/reduce';
 import { EVENT_TYPES } from '../api/types';
 
 // The mock replays real event types and must leave the step graph in the
 // state plans/02 "Demo data" describes when played through the store reducer.
 describe('mock demo run script', () => {
   const { beats } = buildRunScript('run_t');
-  const play = (bs: typeof beats, from = emptySlice()) => {
-    let s = { ...from, run: from.run ?? { id: 'run_t', goal: 'g', status: 'created' as const, criteria: [], created_at: 0 } };
+  const play = (bs: typeof beats, from: RunSlice = emptySlice()): RunSlice => {
+    let s: RunSlice = { ...from, run: from.run ?? { id: 'run_t', goal: 'g', status: 'created', criteria: [], created_at: 0 } };
     bs.forEach((b, i) => { s = reduceEvent(s, toEvent('run_t', b, 1000 + i, i)).slice; });
     return s;
   };

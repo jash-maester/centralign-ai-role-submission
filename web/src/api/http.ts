@@ -3,8 +3,8 @@ import type { ApiClient, ShellConnection, StreamHandlers } from './client';
 import { asFacts, asList, asReport, asRunConfig } from './normalize';
 import { openEventStream } from './sse';
 import type {
-  AgentConfig, AgentConfigPatch, AgentStatus, Escalation, FaultName, LedgerEvent, LlmBudget, NewRun, Run,
-  RunConfig, Step,
+  AgentConfig, AgentConfigPatch, AgentStatus, Escalation, FaultName, LedgerEvent, LlmBudget, NewRun, Playbook,
+  PlaybookSection, Run, RunConfig, Step,
 } from './types';
 
 export class ApiError extends Error {
@@ -106,9 +106,28 @@ export class HttpClient implements ApiClient {
     };
   }
 
+  getPlaybook = async (name: string): Promise<Playbook> => {
+    const raw = await this.req<unknown>('GET', `/playbooks/${enc(name)}`);
+    if (typeof raw === 'string') return { name, sections: splitMarkdown(raw), markdown: raw };
+    const o = (raw ?? {}) as Partial<Playbook> & { content?: string };
+    const md = o.markdown ?? o.content;
+    return { name, version: o.version ?? null, hash: o.hash ?? null, sections: o.sections?.length ? o.sections : md ? splitMarkdown(md) : [], markdown: md };
+  };
+
   evidenceUrl = (path: string) => `${this.base}/evidence/${path.replace(/^\/?(evidence\/)?/, '')}`;
 
   stream(runId: string, lastEventId: string | null, h: StreamHandlers) {
     return openEventStream(`${this.base}/stream?run_id=${enc(runId)}`, lastEventId, h);
   }
+}
+
+/** Split a markdown playbook into `## ` sections (front matter dropped). */
+export function splitMarkdown(md: string): PlaybookSection[] {
+  const body = md.replace(/^---\n[\s\S]*?\n---\n/, '');
+  const out: PlaybookSection[] = [];
+  for (const block of body.split(/^##\s+/m).slice(1)) {
+    const [heading, ...rest] = block.split('\n');
+    out.push({ heading: heading.trim(), body: rest.join('\n').trim() });
+  }
+  return out;
 }

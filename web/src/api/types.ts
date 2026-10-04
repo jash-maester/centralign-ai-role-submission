@@ -302,6 +302,20 @@ export interface AgentConfigPatch {
   tools?: ToolSpec[];
 }
 
+export interface PlaybookSection {
+  heading: string;
+  body: string;
+  used_by?: string;
+}
+
+export interface Playbook {
+  name: string;
+  version?: string | number | null;
+  hash?: string | null;
+  sections: PlaybookSection[];
+  markdown?: string;
+}
+
 export interface NewRun {
   goal: string;
   input_file?: string | null;

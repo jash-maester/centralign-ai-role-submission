@@ -6,12 +6,12 @@
  */
 import type { ApiClient, ShellConnection, StreamHandlers } from '../client';
 import type {
-  AgentConfig, AgentConfigPatch, AgentStatus, Escalation, Fact, FaultName, LedgerEvent, LlmBudget, NewRun, Report, Run,
+  AgentConfig, AgentConfigPatch, AgentStatus, Escalation, Fact, FaultName, LedgerEvent, LlmBudget, NewRun, Playbook, Report, Run,
   RunConfig, RunConfigResponse, Step,
 } from '../types';
 import { reduceEvent, type RunSlice } from '../../store/reduce';
 import { DEFAULT_RUN_CONFIG } from '../../lib/runConfig';
-import { AGENT_CONFIGS, AGENTS, budgetFixture, buildReport, CRITERIA, GOAL, MODELS, PAST_RUNS } from './fixtures';
+import { AGENT_CONFIGS, AGENTS, budgetFixture, buildReport, CRITERIA, GOAL, MODELS, PAST_RUNS, PLAYBOOK_SECTIONS } from './fixtures';
 import { B1, buildRunScript, samLaneBeats, SAM_ESCALATION, toEvent, type Beat } from './script';
 import { MockShell } from './shell';
 
@@ -271,7 +271,10 @@ export class MockClient implements ApiClient {
       const holding = steps.filter((s) => s.lease_owner === a.id && ['leased', 'claimed_done'].includes(s.status)).sort((x, y) => (y.updated_at ?? 0) - (x.updated_at ?? 0))[0];
       const done = steps.filter((s) => (s.history ?? []).some((h) => h.worker === a.id && h.outcome === 'committed')).length;
       const rej = steps.filter((s) => (s.history ?? []).some((h) => h.worker === a.id && h.outcome === 'rejected')).length;
-      const verifierDone = a.id === 'verifier' ? steps.filter((s) => s.status === 'committed').length : done;
+      const evs = run?.events ?? [];
+      const verifierDone = a.id === 'verifier' ? steps.filter((s) => s.status === 'committed').length
+        : a.id === 'orchestrator' ? evs.filter((e) => e.type.startsWith('plan.')).length
+        : a.id === 'meta-reviewer' ? evs.filter((e) => e.type === 'review.resolved' || e.type === 'approval.auto').length : done;
       return {
         ...clone(a),
         alive: st.alive,
@@ -334,6 +337,11 @@ export class MockClient implements ApiClient {
     const run = this.current()?.slice.run?.id;
     if (run) this.emitNow(run, 'shell.opened', 'api', { agent_id: agentId, summary: `${agentId} · sandboxed exec` });
     return new MockShell(agentId, this.agentState[agentId]?.alive !== false);
+  }
+
+  async getPlaybook(name: string): Promise<Playbook> {
+    await wait();
+    return { name, version: 'v3', hash: 'a91c', sections: PLAYBOOK_SECTIONS.map((x) => ({ heading: x.h, body: x.body, used_by: x.used })) };
   }
 
   evidenceUrl(path: string): string {

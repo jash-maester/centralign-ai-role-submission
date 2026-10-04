@@ -1,6 +1,6 @@
 /** Pure view-model derivations from store data (unit tested). */
 import type { AgentStatus, Escalation, Fact, LedgerEvent, Run, RunConfig, Step, StepKind } from '../api/types';
-import { stepVisual, VISUAL_COLOR, type Visual } from './states';
+import { FAULT_TYPES, RECOVERY_TYPES, stepVisual, VISUAL_COLOR, type Visual } from './states';
 
 // ---- leads and lanes -------------------------------------------------------
 
@@ -151,6 +151,10 @@ export function eventLine(e: LedgerEvent): string {
   const parts: string[] = [];
   const text = p.summary ?? p.message ?? p.reason ?? p.title ?? p.question ?? p.detail;
   if (e.step_id) parts.push(e.step_id);
+  if (e.type === 'step.leased') {
+    parts.push(`→ ${s(p.worker ?? e.actor)}${p.fence != null ? ` · token ${s(p.fence)}` : ''}${num(p.attempt) > 1 ? ` · attempt ${s(p.attempt)}` : ''}`);
+    return parts.join(' · ');
+  }
   if (typeof text === 'string' && text) parts.push(text);
   else {
     for (const [k, v] of Object.entries(p)) {
@@ -159,7 +163,6 @@ export function eventLine(e: LedgerEvent): string {
       parts.push(`${k}=${typeof v === 'number' && !Number.isInteger(v) ? v.toFixed(2) : String(v)}`);
     }
   }
-  if (e.type === 'step.leased' && (p.worker || e.actor)) parts.push(`→ ${s(p.worker ?? e.actor)}${p.fence != null ? ` · token ${s(p.fence)}` : ''}`);
   return parts.join(' · ');
 }
 
@@ -248,8 +251,8 @@ export function handledAutomatically(events: LedgerEvent[]): AutoItem[] {
       items.push({ c: VISUAL_COLOR.leased, title: `Lease on ${e.step_id ?? 'a step'} expired, work taken over`, why: s(p.summary ?? p.reason) || `Previous holder ${s(p.worker ?? p.previous ?? '') || 'lost'}; the step went back to ready with a higher fence.`, by: e.actor || 'orchestrator', ts: e.ts });
     } else if (e.type === 'model.fallback') {
       items.push({ c: VISUAL_COLOR.claimed, title: `Model fallback for ${s(p.role ?? e.actor)}`, why: s(p.summary) || `${s(p.from)} → ${s(p.to)}${p.error ? ` after ${s(p.error)}` : ''}`, by: 'llm router', ts: e.ts });
-    } else if (e.type === 'plan.revised' || e.type === 'step.replanned') {
-      items.push({ c: VISUAL_COLOR.ready, title: e.type === 'plan.revised' ? 'Plan revised' : `Step ${e.step_id ?? ''} replanned`, why: s(p.reason ?? p.summary), by: e.actor, ts: e.ts });
+    } else if (e.type === 'plan.revised' && /replan|blocked|route/i.test(s(p.reason ?? p.summary))) {
+      items.push({ c: VISUAL_COLOR.ready, title: 'Plan revised', why: s(p.reason ?? p.summary), by: e.actor, ts: e.ts });
     }
   }
   return items.reverse();
@@ -315,4 +318,20 @@ export function initials(name: string): string {
 export function shortModel(m: string | null | undefined): string {
   if (!m) return '—';
   return m.includes('/') ? m.slice(m.indexOf('/') + 1) : m;
+}
+
+/** Marks each event FAULT, RECOVERY (the first recovery after each injected fault) or nothing. */
+export function tagEvents(events: LedgerEvent[]): ('FAULT' | 'RECOVERY' | '')[] {
+  let open = 0;
+  return events.map((e) => {
+    if (FAULT_TYPES.has(e.type) || e.payload?.fault === true) {
+      if (e.type === 'fault.injected') open += 1;
+      return 'FAULT';
+    }
+    if (open > 0 && RECOVERY_TYPES.has(e.type)) {
+      open -= 1;
+      return 'RECOVERY';
+    }
+    return '';
+  });
 }

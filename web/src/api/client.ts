@@ -1,6 +1,6 @@
 import type {
   AgentConfig, AgentConfigPatch, AgentStatus, Escalation, Fact, FaultName, LedgerEvent, LlmBudget, NewRun,
-  Report, Run, RunConfig, RunConfigResponse, Step,
+  Playbook, Report, Run, RunConfig, RunConfigResponse, Step,
 } from './types';
 
 export type StreamStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
@@ -51,6 +51,8 @@ export interface ApiClient {
   putAgentConfig(agentId: string, patch: AgentConfigPatch): Promise<AgentConfig>;
   restartAgent(agentId: string): Promise<void>;
   openShell(agentId: string): ShellConnection;
+  /** Proposed additive endpoint GET /playbooks/{name} (Content tab); 404 is shown honestly. */
+  getPlaybook(name: string): Promise<Playbook>;
   // evidence + live stream
   evidenceUrl(path: string): string;
   stream(runId: string, lastEventId: string | null, handlers: StreamHandlers): () => void;
