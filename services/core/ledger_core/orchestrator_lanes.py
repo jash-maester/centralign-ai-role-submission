@@ -425,8 +425,18 @@ def lookup_for(lane_steps: list[Step], facts: dict[str, Any]) -> tuple[Step | No
     search = latest(lane_steps, K.CRM_SEARCH_CONTACT, status=S.COMMITTED)
     if search is None:
         return None, {}
+    # Track J (F/G integration): Track F's `<lane>.lookup` fact keeps only
+    # {result, match_type, contact_id, candidates}; routing (owner, owner_reason,
+    # account candidates) lives in the claim data and `<lane>.routing`. Merge them,
+    # REST-verified facts winning, so routed leads are not sent to review.
+    out = dict(step_output(search, facts))
     fact = facts.get(f"{lane}.lookup")
-    return search, fact if isinstance(fact, dict) else step_output(search, facts)
+    if isinstance(fact, dict):
+        out.update(fact)
+    routing = facts.get(f"{lane}.routing")
+    if isinstance(routing, dict):
+        out.update({k: v for k, v in routing.items() if v is not None})
+    return search, out
 
 
 def decision_for(lane: str, review: Step | None, facts: dict[str, Any]) -> dict[str, Any] | None:
