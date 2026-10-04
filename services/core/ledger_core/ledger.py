@@ -275,6 +275,10 @@ async def set_run_status(
 async def get_run_config(r: aioredis.Redis, keys: Keys, run_id: str) -> RunConfig:
     """run:{id}:config is a Hash of RunConfig field -> JSON value (+ config_hash).
     Missing hash -> defaults. Values that are not JSON are taken as raw strings."""
+    if await r.type(keys.run_config(run_id)) == "string":
+        # run_config.py (Track D) stores {"config": {...}, "config_hash", "version"} as JSON.
+        record = json.loads(await r.get(keys.run_config(run_id)) or "{}")
+        return RunConfig.model_validate(record.get("config") or {})
     raw = await r.hgetall(keys.run_config(run_id))
     if not raw:
         return RunConfig()
