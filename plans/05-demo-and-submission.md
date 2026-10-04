@@ -41,6 +41,31 @@ make replay RUN=run_7f3a   # POST /runs/{id}/replay; cache-only, zero live LLM c
 Each calls `POST /chaos/{fault}` (or docker directly for kill) and emits a
 `fault.injected` event so the timeline shows cause next to recovery.
 
+### Reliability e2e suite (Track M)
+
+`make test-e2e` (or `make test-e2e FRESH=1` to `make clean` first) starts the
+stack on the scripted LLM backend (`tests/e2e/compose.e2e.yml`: every service
+`LLM_BACKEND=scripted`, the test container gets the docker socket), seeds it and
+runs `tests/e2e/test_demo_*.py` (marker `e2e`; `make test` deselects it). Zero
+OpenRouter requests. Scenarios: clean demo (6/3/2/1, Sam escalated, 8 emails,
+tasks, then the answer completes the run), chaos (false_claim, expire_session,
+model_outage and a kill of the browser lease holder in one run; zero duplicates;
+report pairs each fault with its recovery), determinism 1.0 (two runs, identical
+plans), replay (zero live LLM calls), A9 restart mid-run.
+
+Deviations, on purpose:
+- "From clean" inside the suite is a reset, not `make clean` per scenario
+  (EspoCRM reinstall costs minutes each): CRM back to exactly
+  `data/crm_seed.json` (asserted entity by entity), Mailpit emptied, faults
+  cleared, every agent alive. `FRESH=1` gives a true clean start for the run.
+- A9 restarts Redis, the API and every agent/worker container (the ledger and
+  its users). EspoCRM, its database and Mailpit stay up: they are the external
+  systems of record, so restarting them would test EspoCRM, not the ledger.
+- The kill is `POST /chaos/kill_worker` with `kill: true` (the API's docker
+  socket), the same container kill `make chaos-kill-browser` does.
+- The scripted backend honours `model_outage` too (consumes the shot, emits
+  `model.fallback`), so chaos runs need no live model.
+
 ## Design note outline (`docs/design-note.md`)
 
 1. **Interpretation of the problem.** Why humans are in the loop today:
