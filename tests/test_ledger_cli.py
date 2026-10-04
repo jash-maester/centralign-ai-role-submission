@@ -58,8 +58,17 @@ async def test_dependencies_wait_until_committed(r, keys):
     assert [s["id"] for s in plan[0].payload["steps"]] == [parse.id, create.id]
 
 
-async def test_demo_placeholder_and_example(capsys):
-    assert await cli.main_async(["demo"]) == 2
-    assert "Track G" in capsys.readouterr().out
+async def test_demo_is_wired_and_example(capsys, monkeypatch):
+    # Track G replaced the placeholder: `demo` runs the orchestrator end to end
+    # (tests/test_orchestrator_crm.py); here only the wiring, never a live LLM call.
+    seen = {}
+
+    async def fake_demo(a):
+        seen.update(goal=a.goal, file=a.file, path=a.crm_write_path)
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_demo", fake_demo)
+    assert await cli.main_async(["demo", "--crm-write-path", "api"]) == 0
+    assert seen == {"goal": cli.DEMO_GOAL, "file": "event_attendees.csv", "path": "api"}
     assert await cli.main_async(["example", "parse"]) == 0
     assert json.loads(capsys.readouterr().out)["steps"][0]["kind"] == "file.parse"

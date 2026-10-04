@@ -2,7 +2,9 @@
 
     docker compose run --rm test python -m ledger_core.cli submit tests/specs/parse_one_step.json
     docker compose run --rm test python -m ledger_core.cli submit --example parse --follow
-    docker compose run --rm test python -m ledger_core.cli submit --goal "Process yesterday's leads"
+    docker compose run --rm test python -m ledger_core.cli submit --goal "Process yesterday's leads" \
+        --file event_attendees.csv [--crm-write-path api] [--set key=value] [--follow]
+    docker compose run --rm test python -m ledger_core.cli demo [--crm-write-path api]   (= make demo)
     ... cli tail [--run RUN] [--until-done] [--timeout 60]
     ... cli steps RUN       ... cli facts RUN       ... cli runs       ... cli release RUN
     ... cli example parse   (print a run spec to start from)
@@ -16,9 +18,16 @@ A run spec is a hand-written plan (no LLM):
                 "depends_on": ["<ref>"], "skill": "<optional, default from kind>"}]}
 
 `submit` stores the run and steps (plan.created), marks the run running and
-moves dependency-free steps to ready. With no orchestrator yet (Track G),
-`release RUN` (or `submit --follow`) moves planned steps whose dependencies
-are committed to ready. `--goal` only creates the run for the orchestrator.
+moves dependency-free steps to ready. `release RUN` (or `submit --follow`)
+moves planned steps whose dependencies are committed to ready (hand-written
+specs only). `submit --goal` creates the run (with its RunConfig from the
+playbook + overrides) for the orchestrator, which understands, plans and runs it.
+
+`demo` submits the one-line goal with data/event_attendees.csv, starts
+in-process stand-ins for any agent the run needs that is not alive
+(orchestrator, parser, api.espocrm worker, verifier with the CRM reader), follows
+the events until the run finishes, and prints criteria verdicts, step counts and
+one line per lead lane. CRM_WRITE_PATH=api|browser|auto sets the route.
 """
 
 from __future__ import annotations
@@ -173,8 +182,14 @@ async def _all_terminal(r, keys: Keys, run_id: str) -> bool:
     return bool(steps) and all(s.status in TERMINAL_STATUSES for s in steps)
 
 
+async def _run_done(r, keys: Keys, run_id: str) -> bool:
+    run = await ledger.get_run(r, keys, run_id)
+    return run is not None and run.status in RUN_DONE
+
+
 async def cmd_tail(r, keys: Keys, run_id: str | None, *, from_start: bool, until_done: bool,
-                   timeout: float | None, release: bool = False) -> None:
+                   timeout: float | None, release: bool = False, until_run_done: bool = False,
+                   quiet: bool = False) -> None:
     deadline = time.monotonic() + timeout if timeout else None
     last = "$"
     if from_start:
@@ -188,11 +203,14 @@ async def cmd_tail(r, keys: Keys, run_id: str | None, *, from_start: bool, until
         return
     async for ev in _tail(r, keys, last, run_id, deadline):
         if ev is not None:
-            print(format_event(ev), flush=True)
+            if not quiet or ev.type in RUN_EVENTS:
+                print(format_event(ev), flush=True)
             if release and run_id and ev.type == EventType.STEP_COMMITTED:
                 await ledger.release_dependents(r, keys, run_id, actor=ACTOR)
         elif until_done and run_id and await _all_terminal(r, keys, run_id):
             return  # only once caught up, so the last events are printed
+        elif until_run_done and run_id and await _run_done(r, keys, run_id):
+            return
 
 
 async def _tail(r, keys: Keys, last: str, run_id: str | None, deadline: float | None):
@@ -239,12 +257,25 @@ async def main_async(argv: list[str] | None = None) -> int:
     sub.add_parser("runs")
     p = sub.add_parser("example", help="print an example run spec")
     p.add_argument("name", choices=sorted(EXAMPLES))
-    sub.add_parser("demo", help="end-to-end demo (Track G)")
+    sub_submit = sub.choices["submit"]
+    sub_submit.add_argument("--file", dest="input_file_alias", help="input file under DATA_DIR (with --goal)")
+    sub_submit.add_argument("--crm-write-path", choices=["browser", "auto", "api"])
+    sub_submit.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                            help="RunConfig override (repeatable), e.g. --set replan_after_rejections=1")
+    p = sub.add_parser("demo", help="submit the one-line goal and follow the run to the end (Track G)")
+    p.add_argument("--goal", default=DEMO_GOAL)
+    p.add_argument("--file", default="event_attendees.csv")
+    p.add_argument("--crm-write-path", choices=["browser", "auto", "api"],
+                   default=os.environ.get("CRM_WRITE_PATH") or None)
+    p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
+    p.add_argument("--timeout", type=float, default=float(os.environ.get("DEMO_TIMEOUT", "300")))
+    p.add_argument("--no-local", action="store_true",
+                   help="do not start in-process stand-ins for missing agents (orchestrator, parser, api worker, verifier)")
+    p.add_argument("--quiet", action="store_true", help="do not print every event")
     a = ap.parse_args(argv)
 
     if a.cmd == "demo":
-        print("demo: not implemented until Track G (orchestrator); use `submit --example parse --follow`")
-        return 2
+        return await cmd_demo(a)
     if a.cmd == "example":
         print(json.dumps(EXAMPLES[a.name], indent=2))
         return 0
@@ -254,8 +285,14 @@ async def main_async(argv: list[str] | None = None) -> int:
     try:
         if a.cmd == "submit":
             if a.goal:
-                run = await ledger.create_run(r, keys, Run(goal=a.goal, input_file=a.input_file), actor=ACTOR)
+                from .orchestrator import submit_goal
+
+                run = await submit_goal(r, keys, a.goal, input_file=a.input_file or a.input_file_alias,
+                                        config=_overrides(a), actor=ACTOR)
                 print(f"run {run.id} created (status {run.status.value}); the orchestrator plans it")
+                if a.follow:
+                    await cmd_tail(r, keys, run.id, from_start=True, until_done=False, timeout=a.timeout,
+                                   until_run_done=True)
                 return 0
             if a.example:
                 spec = EXAMPLES[a.example]
@@ -298,6 +335,105 @@ async def main_async(argv: list[str] | None = None) -> int:
     finally:
         await r.aclose()
     return 1
+
+
+DEMO_GOAL = "Add the leads from yesterday's event to the CRM and set up follow-ups."
+RUN_DONE = frozenset({RunStatus.COMPLETED, RunStatus.COMPLETED_PENDING_INPUT, RunStatus.FAILED})
+RUN_EVENTS = frozenset({EventType.RUN_CREATED, EventType.RUN_UNDERSTOOD, EventType.PLAN_CREATED,
+                        EventType.PLAN_REVISED, EventType.RUN_STATUS, EventType.RUN_COMPLETED,
+                        EventType.RUN_COMPLETED_PENDING_INPUT, EventType.RUN_FAILED, EventType.STEP_DEAD,
+                        EventType.STEP_REJECTED})
+
+
+def _overrides(a: argparse.Namespace) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for item in getattr(a, "set", None) or []:
+        k, _, v = item.partition("=")
+        try:
+            out[k.strip()] = json.loads(v)
+        except ValueError:
+            out[k.strip()] = v
+    if getattr(a, "crm_write_path", None):
+        out["crm_write_path"] = a.crm_write_path
+    return out
+
+
+def format_lanes(lanes: list[dict[str, Any]]) -> str:
+    lines = [f"{'lane':<9} {'name':<16} {'email':<32} {'status':<12} {'action':<9} {'owner':<8} detail"]
+    for x in lanes:
+        detail = x.get("reason") or ""
+        if x.get("task"):
+            detail = (detail + " " if detail else "") + f"task due {x['task'].get('due')} [{x['task'].get('status')}]"
+        lines.append(f"{x['lane']:<9} {(x.get('name') or '-')[:16]:<16} {(x.get('email') or '-')[:32]:<32} "
+                     f"{x['status']:<12} {x.get('action') or '-':<9} {x.get('owner') or '-':<8} {detail}")
+    return "\n".join(lines)
+
+
+def format_summary(run: Run, steps: list[Step], lanes: list[dict[str, Any]]) -> str:
+    out = [f"\nrun {run.id}: {run.status.value}", f"goal: {run.goal}", "", "success criteria:"]
+    for c in run.criteria:
+        out.append(f"  [{c.status:<8}] {c.id} {c.text}  ({c.check})")
+        if c.evidence:
+            out.append(f"             {c.evidence}")
+    counts: dict[str, dict[str, int]] = {}
+    for s in steps:
+        counts.setdefault(s.kind.value, {}).setdefault(s.status.value, 0)
+        counts[s.kind.value][s.status.value] += 1
+    out += ["", f"steps ({len(steps)}):"]
+    for kind, by in sorted(counts.items()):
+        out.append(f"  {kind:<20} " + ", ".join(f"{n} {st}" for st, n in sorted(by.items())))
+    skills = sorted({s.skill.value for s in steps})
+    out += [f"  skills used: {', '.join(skills)}", "", "lanes:", format_lanes(lanes)]
+    return "\n".join(out)
+
+
+async def cmd_demo(a: argparse.Namespace) -> int:
+    """Submit the one-line goal, make sure every needed agent is up (in-process
+    stand-ins for missing ones), follow the run to the end, print the result."""
+    from pathlib import Path as _P
+
+    from . import postconditions
+    from .orchestrator import submit_goal
+    from .orchestrator_lanes import lane_outcomes
+    from .orchestrator_local import LocalAgents, served
+
+    s = get_settings()
+    # test container: data and playbooks are mounted under /repo, not /app
+    for env, have, alt in (("DATA_DIR", s.data_dir, "/repo/data"), ("PLAYBOOK_DIR", s.playbook_dir, "/repo/playbooks")):
+        if not _P(have).is_dir() and _P(alt).is_dir():
+            os.environ[env] = alt
+    get_settings.cache_clear()
+    postconditions.load_all()
+    r = connect()
+    keys = Keys(get_settings().ledger_ns)
+    try:
+        overrides = _overrides(a)
+        path = overrides.get("crm_write_path") or RunConfig().crm_write_path
+        crm_skill = {"api": "api.espocrm", "browser": "browser.espocrm", "auto": "browser.espocrm"}[path]
+        need = ["orchestrator", "verifier", "file.parse", crm_skill]
+        if path == "auto":
+            need.append("api.espocrm")
+        live = await served(r, keys)
+        print(f"llm backend: {os.environ.get('LLM_BACKEND') or get_settings().llm_backend}; crm_write_path: {path}")
+        print("live agents: " + (", ".join(f"{k}={v}" for k, v in sorted(live.items())) or "none"))
+        if a.no_local:
+            need = []
+        async with LocalAgents(r, keys, need=need) as local:
+            if local.started:
+                print("in-process stand-ins: " + ", ".join(local.started))
+            if crm_skill == "browser.espocrm" and not live.get(crm_skill):
+                print("warning: no browser operator is alive; CRM steps will wait (use --crm-write-path api)")
+            run = await submit_goal(r, keys, a.goal, input_file=a.file, config=overrides, actor=ACTOR)
+            print(f"run {run.id} submitted: {a.goal!r} with {a.file}")
+            await cmd_tail(r, keys, run.id, from_start=True, until_done=False, timeout=a.timeout,
+                           until_run_done=True, quiet=a.quiet)
+        run = await ledger.get_run(r, keys, run.id)
+        steps = await ledger.list_steps(r, keys, run.id)
+        facts = await ledger.get_facts(r, keys, run.id)
+        print(format_summary(run, steps, lane_outcomes(steps, facts)))
+        return 0 if run.status in (RunStatus.COMPLETED, RunStatus.COMPLETED_PENDING_INPUT) else 1
+    finally:
+        await r.aclose()
 
 
 def _fact_sort(k: str) -> tuple:
