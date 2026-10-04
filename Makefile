@@ -8,7 +8,7 @@ ARGS ?=
 
 .PHONY: help up down build logs ps seed snapshot test test-unit test-crm test-browser test-live \
         demo schema clean chaos-false-claim chaos-kill-browser chaos-expire-session \
-        chaos-model-outage determinism replay
+        chaos-model-outage determinism replay web-check
 
 help:  ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-22s %s\n", $$1, $$2}'
@@ -57,6 +57,9 @@ demo:  ## run the one-line goal end to end and print the report
 
 schema:  ## export protocol JSON schema for the web client
 	$(DC) run --rm -v ./web:/repo/web test python /repo/services/core/scripts/export_schema.py /repo/web/src/api/protocol.schema.json
+
+web-check:  ## web GUI: typecheck, lint and vitest inside node:22-alpine
+	web/scripts/node.sh sh -c "npm ci --no-audit --no-fund >/dev/null && npm run typecheck && npm run lint && npm test"
 
 clean:  ## stop and delete all volumes (CRM, ledger, evidence)
 	$(DC) --profile tools down -v --remove-orphans

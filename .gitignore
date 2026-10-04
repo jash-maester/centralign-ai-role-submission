@@ -9,3 +9,5 @@ evidence/
 .venv/
 .cache/
 .claude/worktrees/
+web/dist-mock/
+web/screenshots/
