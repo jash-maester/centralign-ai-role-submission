@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     llm_daily_request_budget: int = 45
     llm_cache: str = "on"  # on | off | replay-only
     llm_live_tests: bool = False
+    # Track D (additive): backend selection, cache location, scripted fixtures.
+    llm_backend: str = "openrouter"  # openrouter | scripted | stub
+    llm_cache_dir: str = "/llm-cache"
+    llm_fixtures_dir: str = ""  # empty = tests/fixtures/llm next to the repo
+    llm_timeout_s: float = 90.0
 
     review_auto_threshold: float = 0.80
     approval_auto_threshold: float = 0.90
