@@ -1,0 +1,44 @@
+[
+  {
+    "role": "orchestrator",
+    "schema": "Understanding",
+    "model": "scripted:orchestrator.json",
+    "response": {
+      "summary": "Create or enrich one CRM contact per usable attendee of yesterday's event, route owners per the playbook, give each a follow-up task, and email them only with an approval on record.",
+      "event_name": "Signal Summit",
+      "event_date": null,
+      "criteria": [
+        {"id": "c1", "text": "Every usable row is a CRM contact exactly once", "check": "crm.no_duplicate"},
+        {"id": "c2", "text": "Existing contacts enriched, not duplicated", "check": "crm.no_duplicate"},
+        {"id": "c3", "text": "Each contact has a follow-up task due in 2 business days", "check": "crm.task_exists"},
+        {"id": "c4", "text": "Owner assigned per routing rules", "check": "crm.contact_exists"},
+        {"id": "c5", "text": "Rows without email skipped with a reason", "check": "review.decided"},
+        {"id": "c6", "text": "Emails sent only with an approval fact", "check": "email.sent"}
+      ]
+    }
+  },
+  {
+    "role": "orchestrator",
+    "schema": "Plan",
+    "model": "scripted:orchestrator.json",
+    "response": {
+      "rationale": "Parse the attendee file first; every per-lead step depends on its committed rows, so the orchestrator fans out one lane per usable lead after the parse commits.",
+      "steps": [
+        {
+          "ref": "parse",
+          "kind": "file.parse",
+          "title": "Parse event_attendees.csv",
+          "inputs": {"file": "event_attendees.csv"},
+          "postcondition": {
+            "check": "file.parsed_rows",
+            "args": {"file": "event_attendees.csv"},
+            "expect": {"required_columns": ["name", "email"]}
+          },
+          "depends_on": []
+        }
+      ],
+      "per_lead": ["crm.search_contact", "review.ambiguity", "crm.create_contact", "crm.update_contact",
+                   "crm.create_task", "email.draft", "review.approval", "email.send"]
+    }
+  }
+]

@@ -50,6 +50,12 @@ def diff(old: RunConfig, new: RunConfig) -> dict[str, list[Any]]:
 
 
 async def get_record(r: aioredis.Redis, keys: Keys, run_id: str) -> dict[str, Any] | None:
+    if await r.type(keys.run_config(run_id)) in ("hash", b"hash"):  # ledger.set_run_config (Track A format)
+        from .ledger import get_run_config
+
+        cfg = await get_run_config(r, keys, run_id)
+        return {"config": cfg.model_dump(mode="json"), "config_hash": cfg.config_hash(), "version": 0,
+                "updated_by": "ledger"}
     raw = await r.get(keys.run_config(run_id))
     return json.loads(raw) if raw else None
 
