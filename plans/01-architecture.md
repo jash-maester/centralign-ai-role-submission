@@ -434,6 +434,26 @@ one broken channel cannot both act wrongly and report success.
 Deterministic checks always run first. The LLM judge is used only where no
 hard check exists, and its verdict is recorded with its reasoning.
 
+### Implementation notes (Track F, verifier + faults + API worker)
+
+- `verifier.make_context_factory()` gives checks `ctx.crm` (CrmReader, read-only
+  `ledger-verifier` key from `config:crm`) and `ctx.mailpit`; the default context
+  also carries `extra` r/keys/config/playbook/rejections.
+- `judge.make_judge()` (role `verifier`) runs only for `email.draft_valid` and only
+  after the deterministic check passed, when `llm_judge_enabled`. Pass = score
+  >= 0.6 and no flags; score/flags/reasoning go to `observed.judge`, the model to
+  `Verdict.model`. LLM unavailable -> deterministic verdict stands, `judge.skipped`.
+  `judge.judge_drafts()` scores a batch in one call (approval).
+- `faults.py` is the only reader/writer of `faults`: set/consume/clear for every
+  FaultName, each set/clear emits `fault.injected` (phase set|cleared, by, what),
+  consumers emit phase=consumed. Scope lookup: `<fault>:<agent_id>`,
+  `<fault>:<skill>`, then `<fault>`. `python -m ledger_core.faults set ...` arms one.
+- `worker-api` (skill `api.espocrm`) runs Track B's REST handlers; SkillInputError
+  becomes a `blocked` observation (retryable=false) and a not-acted claim.
+- CRM facts per lead (`lead:<n>` from step.lane): `.lookup`, `.contact_id`,
+  `.action`, `.owner`, `.crm_url`, `.routing`, `.open_deal`, `.task_id`,
+  `.task_due`, `.task_owner`, `.task_url` (REST-observed values win over claims).
+
 ## 9. Review and human in the loop (by exception)
 
 - Policy comes from the playbook: e.g. "external emails require approval",
