@@ -1,0 +1,29 @@
+01. Hook  [16s]
+Today's AI agents can't be trusted to finish real work on their own. They're unreliable, they can't prove they're done, and they act on ambiguous requests. Ledger fixes that with state, not prompts.
+
+02. One line in  [17s]
+Here's the job: add the leads from yesterday's event to the CRM and set up follow-ups. One line. A playbook, our company's SOP, supplies everything unstated: dedupe rules, owner routing, follow-up policy, and what needs approval.
+
+03. One shared ledger  [19s]
+The orchestrator turns that line into checkable success criteria and a plan of steps. Every agent works off one shared ledger in Redis. Agents never read each other's chat, only facts that have been committed. Every state change is an event.
+
+04. A claim is not a fact  [21s]
+Here's the core idea: a claim is not a fact. A worker can only say it's done. That claim stays amber until an independent verifier checks the real CRM, through its REST API while the workers act through the browser, and only then commits it green.
+
+05. False claim, caught  [20s]
+Let's prove it. I inject a fault: the next browser step claims success without doing anything. The verifier queries the CRM, finds no contact, and rejects it with a reason. The retry gets that reason in its prompt, and this time it commits.
+
+06. Kill a worker  [25s]
+Now I kill a browser worker in the middle of a step. Every step is held under a lease, with a heartbeat and a fencing token. The lease expires, the reaper puts the step back, and the second worker takes over with token two. Zero duplicates, because every write checks before it acts.
+
+07. Humans by exception  [32s]
+Humans are the last agent on the bus. A meta-reviewer decides ambiguous cases on its own when its confidence clears a threshold: Ben Ortiz is a match, Jo Park is skipped. Sam Ito is different. Lumen matches two CRM accounts, confidence point five two, below point eight. So only that one comes to me. I pick the account and save it as a playbook rule, so next time it's automatic.
+
+08. Outcome  [17s]
+Emails go out only with an approval on record, and the verifier confirms each one in the inbox. Twelve messy rows in: six created, three updated, two skipped with reasons, and one question for a human.
+
+09. Evidence report  [21s]
+Everything ends in an evidence report: every row, who decided it, how it was verified, and every failure paired with its recovery. This same run also completed on live free models, twenty-eight live calls, same outcome. The recording uses recorded answers so it's exactly reproducible.
+
+10. Same substrate  [12s]
+New workflow? Write a new playbook and connectors; the substrate stays the same. Autonomy is a state-management problem, not a prompting problem. Thanks for watching.
