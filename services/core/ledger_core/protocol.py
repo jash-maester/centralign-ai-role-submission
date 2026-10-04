@@ -300,6 +300,9 @@ class EventType(StrEnum):
     RUN_COMPLETED = "run.completed"
     RUN_COMPLETED_PENDING_INPUT = "run.completed_pending_input"
     RUN_FAILED = "run.failed"
+    # Additive (Track A): non-terminal run status changes (created -> understanding
+    # -> planning -> running). Terminal statuses keep their own event types above.
+    RUN_STATUS = "run.status"
 
 
 class Event(BaseModel):
