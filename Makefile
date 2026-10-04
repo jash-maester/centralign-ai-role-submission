@@ -7,7 +7,7 @@ LEVEL ?= 1.0
 ARGS ?=
 
 .PHONY: help up down build logs ps seed snapshot test test-unit test-crm test-browser test-live \
-        demo schema clean chaos-false-claim chaos-kill-browser chaos-expire-session \
+        demo schema openapi clean chaos-false-claim chaos-kill-browser chaos-expire-session \
         chaos-model-outage determinism replay web-check
 
 help:  ## list targets
@@ -58,6 +58,9 @@ demo:  ## run the one-line goal end to end and print the report
 schema:  ## export protocol JSON schema for the web client
 	$(DC) run --rm -v ./web:/repo/web test python /repo/services/core/scripts/export_schema.py /repo/web/src/api/protocol.schema.json
 
+openapi:  ## export the API's OpenAPI schema to web/src/api/schema.json
+	$(DC) run --rm -v ./web:/repo/web test python /repo/services/api/scripts/export_openapi.py /repo/web/src/api/schema.json
+
 web-check:  ## web GUI: typecheck, lint and vitest inside node:22-alpine
 	web/scripts/node.sh sh -c "npm ci --no-audit --no-fund >/dev/null && npm run typecheck && npm run lint && npm test"
 
@@ -71,7 +74,7 @@ chaos-false-claim:  ## next browser step claims done without acting
 chaos-kill-browser:  ## docker kill the browser operator currently holding a lease
 	@holder=$$(curl -fsS $(API)/agents | python3 -c 'import json,sys; a=[x for x in json.load(sys.stdin) if x.get("id","").startswith("worker-browser") and x.get("current_step")]; print(a[0]["id"] if a else "")'); \
 	if [ -z "$$holder" ]; then echo "no browser operator holds a lease right now"; exit 1; fi; \
-	curl -fsS -X POST $(API)/chaos/kill_worker -H 'content-type: application/json' -d "{\"agent_id\":\"$$holder\"}" >/dev/null; \
+	curl -fsS -X POST $(API)/chaos/kill_worker -H 'content-type: application/json' -d "{\"agent_id\":\"$$holder\",\"kill\":false}" >/dev/null; \
 	echo "killing $$holder"; $(DC) kill $$holder
 
 chaos-expire-session:  ## invalidate the CRM session cookie
