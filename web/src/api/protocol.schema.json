@@ -39,7 +39,8 @@
       "fault.injected",
       "run.completed",
       "run.completed_pending_input",
-      "run.failed"
+      "run.failed",
+      "run.status"
     ],
     "RunStatus": [
       "created",
@@ -626,7 +627,8 @@
             "fault.injected",
             "run.completed",
             "run.completed_pending_input",
-            "run.failed"
+            "run.failed",
+            "run.status"
           ],
           "title": "EventType",
           "type": "string"
