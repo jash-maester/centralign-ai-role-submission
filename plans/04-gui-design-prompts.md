@@ -214,3 +214,24 @@ Found when clicking through `web/design/` on 2026-10-04. The spec wins:
   animates from SSE.
 - The Steps tab count (8) vs. graph (46) is a filtered view; keep both but
   label the filter.
+
+## Phase 7 implementation notes (Track E)
+
+All six inconsistencies above are fixed in `web/`: the live ledger shows real
+event types only (no `step.heartbeat`; TTL rings come from `GET /agents`),
+model names are rendered from `/agents` / `/llm/budget` role config, the run
+strip and Spend cap show the free-request budget next to `$` spend, the
+Builder submits `POST /runs` and animates from SSE, and the Steps tab is
+labelled "N lanes" next to the Graph tab's "N steps". Deliberate deviations
+from the designs:
+
+- Builder: the design's local simulator controls (Step, Reset, speed) are gone
+  because the canvas follows the real run; ADD creates local sketch nodes and
+  the wiring is a per-viewer view (localStorage), since routing is by skill on
+  the server and scaling operators is a compose change.
+- Agent Shell: "follow logs" is replaced by "reconnect"; the shell is a real
+  xterm.js terminal over `WS /agents/{id}/exec`, so `tail -f` works there.
+- Playbook Content tab reads a proposed additive `GET /playbooks/{name}` and
+  says so when the API does not have it.
+- The step graph is React Flow + dagre over the real dependency graph rather
+  than the design's fixed 5-column lane grid; the Steps table keeps the lane view.
