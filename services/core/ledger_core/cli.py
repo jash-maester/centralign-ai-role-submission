@@ -178,7 +178,8 @@ async def cmd_tail(r, keys: Keys, run_id: str | None, *, from_start: bool, until
     deadline = time.monotonic() + timeout if timeout else None
     last = "$"
     if from_start:
-        for ev in await read_events(r, keys, count=100_000, run_id=run_id):
+        history = await ledger.run_events(r, keys, run_id) if run_id else await read_events(r, keys, count=1000)
+        for ev in history:
             print(format_event(ev), flush=True)
             last = ev.id or last
         if last == "$":
@@ -190,8 +191,8 @@ async def cmd_tail(r, keys: Keys, run_id: str | None, *, from_start: bool, until
             print(format_event(ev), flush=True)
             if release and run_id and ev.type == EventType.STEP_COMMITTED:
                 await ledger.release_dependents(r, keys, run_id, actor=ACTOR)
-        if until_done and run_id and await _all_terminal(r, keys, run_id):
-            return
+        elif until_done and run_id and await _all_terminal(r, keys, run_id):
+            return  # only once caught up, so the last events are printed
 
 
 async def _tail(r, keys: Keys, last: str, run_id: str | None, deadline: float | None):
@@ -202,14 +203,17 @@ async def _tail(r, keys: Keys, last: str, run_id: str | None, deadline: float | 
             print("tail: timeout", file=sys.stderr)
             return
         rows = await r.xread({keys.events: last}, block=1000, count=200)
+        n = 0
         for _stream, entries in rows or []:
             for sid, fields in entries:
+                n += 1
                 last = sid
                 ev = Event.model_validate_json(fields["json"])
                 ev.id = sid
                 if run_id is None or ev.run_id == run_id:
                     yield ev
-        yield None
+        if n < 200:
+            yield None  # caught up with the stream
 
 
 async def main_async(argv: list[str] | None = None) -> int:

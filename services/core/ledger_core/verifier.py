@@ -45,6 +45,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import redis.asyncio as aioredis
+from redis.exceptions import RedisError
 
 from . import agents, bus, ledger, postconditions
 from .config import RunConfig
@@ -134,6 +135,8 @@ class Verifier:
         await agents.register_agent(self.r, self.keys, self.card)
         await agents.set_alive(self.r, self.keys, self.agent_id)
         self._started = True
+        log.info("%s ready: consuming %s; checks: %s", self.agent_id, self.keys.verify_queue,
+                 ", ".join(sorted(postconditions.REGISTRY)))
 
     def stop(self) -> None:
         self._stop.set()
@@ -148,13 +151,20 @@ class Verifier:
         live = asyncio.create_task(self._liveness())
         try:
             while not self._stop.is_set():
-                for d in await self.consumer.next(self.block_ms):
+                try:
+                    deliveries = await self.consumer.next(self.block_ms)
+                except RedisError:
+                    log.exception("verify queue read failed; retrying")
+                    await asyncio.sleep(1)
+                    continue
+                for d in deliveries:
                     try:
                         await self.verify(d.step_id)
-                    except Exception:  # noqa: BLE001 - one bad step must not stop verification
-                        log.exception("verifying %s failed", d.step_id)
-                    finally:
-                        await self.consumer.ack(d)
+                    except Exception:  # noqa: BLE001 - left unacked: retried from our pending list
+                        log.exception("verifying %s failed; will retry", d.step_id)
+                        await asyncio.sleep(1)
+                        continue
+                    await self.consumer.ack(d)
         finally:
             live.cancel()
             await agents.clear_alive(self.r, self.keys, self.agent_id)

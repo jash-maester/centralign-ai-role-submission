@@ -45,6 +45,7 @@ from typing import Any
 
 import redis.asyncio as aioredis
 from pydantic import BaseModel, Field
+from redis.exceptions import RedisError
 
 from . import agents, bus, leases, ledger
 from .config import RunConfig
@@ -141,6 +142,7 @@ class Worker:
             await agents.register_agent(self.r, self.keys, self.card)
             await self._beat()
             self._started = True
+            log.info("%s ready: consuming %s", self.agent_id, ", ".join(sorted(self.consumer.streams)))
 
     def stop(self) -> None:
         """Graceful stop: no new work; the step in progress is abandoned (lease released)."""
@@ -158,7 +160,13 @@ class Worker:
         live = asyncio.create_task(self._liveness_loop())
         try:
             while not self._stop.is_set():
-                for d in await self.consumer.next(self.block_ms):
+                try:
+                    deliveries = await self.consumer.next(self.block_ms)
+                except RedisError:
+                    log.exception("%s: bus read failed; retrying", self.agent_id)
+                    await asyncio.sleep(1)
+                    continue
+                for d in deliveries:
                     if self._stop.is_set():
                         break
                     self._busy = asyncio.create_task(self.process(d))
@@ -167,6 +175,9 @@ class Worker:
                     except asyncio.CancelledError:
                         if not self._stop.is_set():
                             raise
+                    except Exception:  # noqa: BLE001 - unacked: retried from our pending list
+                        log.exception("%s: processing %s failed; will retry", self.agent_id, d.step_id)
+                        await asyncio.sleep(1)
                     finally:
                         self._busy = None
         finally:
@@ -202,11 +213,13 @@ class Worker:
     # -- one message ---------------------------------------------------------
 
     async def process(self, d: bus.Delivery) -> str:
-        """Handle one delivery. Returns an outcome label (for logs and tests)."""
-        try:
-            return await self._process(d)
-        finally:
-            await self.consumer.ack(d)
+        """Handle one delivery. Returns an outcome label (for logs and tests).
+        Acked only when handled; after an error or a stop the entry stays
+        pending and is redelivered (duplicates are harmless: the lease and the
+        state machine decide)."""
+        out = await self._process(d)
+        await self.consumer.ack(d)
+        return out
 
     async def _process(self, d: bus.Delivery) -> str:
         step = await ledger.get_step(self.r, self.keys, d.step_id)
