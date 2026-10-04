@@ -137,6 +137,12 @@ services:
       - evidence:/evidence
       - ./.cache/llm:/llm-cache
       - ./tests/fixtures/llm:/app/fixtures/llm:ro
+      # api ONLY: docker socket for POST /agents/{id}/restart, chaos kill_worker and the
+      # sandboxed WS /agents/{id}/exec shell (uid 10001). Agent containers never get it.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # The api process stays uid 10001; it joins the socket's group (root on Docker
+    # Desktop; set DOCKER_GID to the host's `docker` group id on Linux).
+    group_add: ["${DOCKER_GID:-0}"]
     ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
     depends_on:
       redis:
