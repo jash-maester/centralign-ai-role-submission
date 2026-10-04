@@ -587,6 +587,7 @@ hard check exists, and its verdict is recorded with its reasoning.
   `<lane>.lookup` and `<lane>.routing` facts (the lookup fact alone has no
   owner, which sent every routed lead to an unknown_region review).
 - `cli demo` / `LocalAgents` start an in-process meta-reviewer when none is alive.
+
 ### Implementation notes (Track K, drafter + approval batch + mailer)
 
 - Email lanes are a run-level orchestrator stage (`orchestrator_email.py`,
