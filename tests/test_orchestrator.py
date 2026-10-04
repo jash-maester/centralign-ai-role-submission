@@ -506,6 +506,33 @@ async def test_replan_from_ready_when_the_verifier_used_the_default_policy(r, ke
     assert (await ledger.get_step(r, keys, create.id)).status == S.REPLANNED
 
 
+async def test_service_verifier_holds_the_step_for_replan(r, keys):
+    """The containerised verifier (services/verifier.py) uses the replan-aware
+    policy: a second rejection on `auto` is held in `rejected`, not retried on the
+    failing browser path, and the orchestrator moves the lane to the API skill."""
+    from ledger_core.services.verifier import build_verifier
+
+    o, run, steps = await fanned_out(r, keys, {"crm_write_path": "auto", "replan_after_rejections": 2})
+    await _commit_searches(r, keys, steps, {"lead:1": LOOKUPS["lead:1"]})
+    await o.reconcile(run.id)
+    create = group_lanes(await ledger.list_steps(r, keys, run.id))["lead:1"][1]
+    assert create.skill == Skill.BROWSER_ESPOCRM
+    v = build_verifier(r, keys, "verifier-svc", default_context)  # no CRM reader: contact_exists fails
+    assert v.reject_policy is reject_policy
+    for expected in (S.READY, S.REJECTED):  # 1st rejection retries, 2nd is held for the orchestrator
+        fence = await leases.acquire(r, keys, create.id, "w", 15_000)
+        await ledger.transition(r, keys, create.id, S.LEASED, actor="w", actor_role="worker", fence=fence)
+        await ledger.claim(r, keys, create.id, Claim(worker="w", fence=fence, summary="done"))
+        await leases.release(r, keys, create.id, "w")
+        assert await v.run_until_idle() >= 1
+        assert (await ledger.get_step(r, keys, create.id)).status == expected
+    await o.reconcile(run.id)
+    lane = group_lanes(await ledger.list_steps(r, keys, run.id))["lead:1"]
+    assert (await ledger.get_step(r, keys, create.id)).status == S.REPLANNED
+    assert [(s.kind, s.skill, s.status) for s in lane if s.status != S.REPLANNED and s.kind != K.CRM_SEARCH_CONTACT] \
+        == [(K.CRM_CREATE_CONTACT, Skill.API_ESPOCRM, S.READY), (K.CRM_CREATE_TASK, Skill.API_ESPOCRM, S.PLANNED)]
+
+
 async def test_no_replan_without_an_alternative_skill(r, keys):
     o, run, steps = await fanned_out(r, keys, {"crm_write_path": "browser", "replan_after_rejections": 1,
                                                "max_attempts": 2})

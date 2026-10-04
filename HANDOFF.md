@@ -26,6 +26,36 @@ shell is sandboxed but unauthenticated), rotate the sandbox passwords, and point
 The rest of this file is the original build handoff (plans, designs and the
 design-to-endpoint map), kept for anyone extending the system.
 
+## Changes after submission
+
+The submitted state is tag `v1.0-submission`. Changes on `main` after it:
+
+### Verifier service now uses the replan-aware reject policy
+
+- **What was wrong.** The containerised verifier (`services/core/ledger_core/services/verifier.py`)
+  built `Verifier(...)` with the default reject policy. Only the in-process
+  `local_verifier` (`orchestrator_local.py`, used by `make demo` and tests) passed the
+  orchestrator's `reject_policy`. So in the compose stack a rejected CRM step always went
+  straight back to `ready` on the failing path. Replanning (plans/01 §5, feature B5) only
+  happened if the orchestrator caught the step in `ready` before a worker re-leased it, or
+  once it went `dead`.
+- **The fix.** The service now builds its verifier through `build_verifier(...)`, which
+  passes `reject_policy=orchestrator_replan.reject_policy`. That is the same policy the
+  in-process verifier uses.
+  - After `replan_after_rejections` rejections (default 2) of a CRM step, when the run's
+    `crm_write_path` offers another skill (`auto`), the step is held in `rejected`. The
+    orchestrator then marks the lane's remaining steps `replanned` and re-creates them on
+    `api.espocrm`.
+  - With the default `crm_write_path=browser` there is no other skill, so behaviour is
+    unchanged: retry, then `dead` at `max_attempts`, then hand-off to a human.
+- **Verified by:**
+  - a new test, `tests/test_orchestrator.py::test_service_verifier_holds_the_step_for_replan`.
+    It drives the service's own `build_verifier` and asserts: first rejection → `ready`;
+    second → held `rejected`; after the orchestrator reconciles, the original step is
+    `replanned` and the new contact and task steps are on `api.espocrm`;
+  - `make lint` clean, `make test-unit` 485 passed, `make test` (with CRM) 538 passed;
+  - the rebuilt verifier container starts and consumes `queue:verify`.
+
 ## Build handoff (original)
 
 ### What's in here
