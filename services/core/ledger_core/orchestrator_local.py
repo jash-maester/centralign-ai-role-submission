@@ -69,6 +69,20 @@ def parser_worker(r: aioredis.Redis, keys: Keys, agent_id: str = "worker-parser-
     return Worker(r, keys, card, make_handler(data_dir or get_settings().data_dir), **kw)
 
 
+def drafter_worker(r: aioredis.Redis, keys: Keys, agent_id: str = "worker-drafter-local", **kw: Any) -> Worker:
+    """Track K: skill email.draft (LLM role worker), same handler as worker-drafter."""
+    from .services.worker_drafter import build_worker
+
+    return build_worker(r, keys, agent_id, container=agent_id, **kw)
+
+
+def mailer_worker(r: aioredis.Redis, keys: Keys, agent_id: str = "worker-mailer-local", **kw: Any) -> Worker:
+    """Track K: skill email.send (SMTP to Mailpit), same handler as worker-mailer."""
+    from .services.worker_mailer import build_worker
+
+    return build_worker(r, keys, agent_id, container=agent_id, **kw)
+
+
 def crm_context_factory(data_dir: str | None = None):
     """Verifier context with the read-only CRM reader and a Mailpit client."""
     state: dict[str, Any] = {}
@@ -139,6 +153,10 @@ class LocalAgents:
                 agent = parser_worker(self.r, self.keys, data_dir=self.data_dir, block_ms=500)
             elif what == Skill.API_ESPOCRM.value:
                 agent = api_worker(self.r, self.keys, block_ms=500)
+            elif what == Skill.EMAIL_DRAFT.value:
+                agent = drafter_worker(self.r, self.keys, block_ms=500)
+            elif what == Skill.EMAIL_SEND.value:
+                agent = mailer_worker(self.r, self.keys, block_ms=500)
             elif what == "verifier":
                 agent = local_verifier(self.r, self.keys, data_dir=self.data_dir, block_ms=500)
             elif what == Skill.REVIEW.value:

@@ -17,7 +17,7 @@ from ledger_core import ledger, llm
 from ledger_core.llm_scripted import ScriptedBackend
 from ledger_core.orchestrator import Orchestrator, submit_goal
 from ledger_core.orchestrator_lanes import lane_outcomes
-from ledger_core.orchestrator_local import api_worker, local_verifier, parser_worker
+from ledger_core.orchestrator_local import api_worker, drafter_worker, local_verifier, parser_worker
 from ledger_core.protocol import EventType, RunStatus, StepKind, StepStatus
 
 pytestmark = pytest.mark.crm
@@ -92,7 +92,8 @@ async def scripted(repo):
 async def test_demo_goal_end_to_end_api_path(r, keys, repo, clean_crm, scripted):
     data, pbs = f"{repo}/data", f"{repo}/playbooks"
     agents = [parser_worker(r, keys, data_dir=data, block_ms=300), api_worker(r, keys, block_ms=300),
-              local_verifier(r, keys, data_dir=data, block_ms=300)]
+              local_verifier(r, keys, data_dir=data, block_ms=300),
+              drafter_worker(r, keys, block_ms=300)]  # W3 (Track K): done lanes now also draft a follow-up
     orch = Orchestrator(r, keys, playbook_dir=pbs, run_reaper=False)
     tasks = [asyncio.create_task(a.run()) for a in agents]
     try:
