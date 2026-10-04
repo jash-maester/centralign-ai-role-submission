@@ -24,13 +24,14 @@ Who reads which switch (all through consume()):
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import redis.asyncio as aioredis
 
 from .events import append_event
 from .keys import Keys
-from .protocol import Event, EventType, FaultName
+from .protocol import Event, EventType, FaultName, now_ms
 
 DESCRIPTIONS: dict[FaultName, str] = {
     FaultName.FALSE_CLAIM: "next worker step claims done without acting; the verifier must reject it",
@@ -101,12 +102,44 @@ async def consume(r: aioredis.Redis, keys: Keys, fault: FaultName | str, *, scop
     return await r.eval(_TAKE_SHOT, 1, keys.faults, *fields) or None
 
 
+async def mark_pending(r: aioredis.Redis, keys: Keys, fault: FaultName | str, *, event_id: str | None,
+                       payload: dict[str, Any], actor: str = "chaos") -> None:
+    """A fault injected while no run was running (POST /chaos/{fault} without
+    run_id): remember it so the next run that consumes it gets it on its timeline."""
+    fault = FaultName(fault)
+    await r.hset(keys.faults_pending, fault.value, json.dumps(
+        {"event_id": event_id, "ts": now_ms(), "actor": actor, "payload": payload}, sort_keys=True))
+
+
+async def attach_pending(r: aioredis.Redis, keys: Keys, fault: FaultName | str, *, run_id: str | None,
+                         step_id: str | None = None) -> str | None:
+    """The first run that consumes a pending fault owns it: append its
+    fault.injected (phase=injected, attached=true) to that run, just before the
+    consumer's phase=consumed event. Returns the event id, or None."""
+    if not run_id:
+        return None
+    fault = FaultName(fault)
+    raw = await r.hget(keys.faults_pending, fault.value)
+    if not raw or not await r.hdel(keys.faults_pending, fault.value):  # HDEL: exactly one consumer attaches
+        return None
+    try:
+        rec = json.loads(raw)
+    except ValueError:
+        rec = {}
+    payload = {**(rec.get("payload") or {}), "fault": fault.value, "phase": "injected", "pending": False,
+               "attached": True, "pending_since": rec.get("ts"), "pending_event": rec.get("event_id")}
+    return await append_event(r, keys, Event(run_id=run_id, step_id=step_id, actor=rec.get("actor") or "chaos",
+                                             type=EventType.FAULT_INJECTED, payload=payload))
+
+
 async def record_consumed(
     r: aioredis.Redis, keys: Keys, fault: FaultName | str, switch: str, *, actor: str,
     run_id: str | None = None, step_id: str | None = None, effect: str = "", **payload: Any,
 ) -> str:
-    """Append fault.injected (phase=consumed): the moment the fault took effect."""
+    """Append fault.injected (phase=consumed): the moment the fault took effect
+    (after attaching a pending injection to this run, if there is one)."""
     fault = FaultName(fault)
+    await attach_pending(r, keys, fault, run_id=run_id, step_id=step_id)
     return await append_event(r, keys, Event(
         run_id=run_id, step_id=step_id, actor=actor, type=EventType.FAULT_INJECTED,
         payload={"fault": fault.value, "switch": switch, "phase": "consumed",
@@ -158,6 +191,7 @@ async def clear(
     if not doomed:
         return []
     await r.hdel(keys.faults, *doomed)
+    await r.hdel(keys.faults_pending, *{f.split(":", 1)[0] for f in doomed})
     by_fault: dict[str, list[str]] = {}
     for f in doomed:
         by_fault.setdefault(f.split(":", 1)[0], []).append(f)

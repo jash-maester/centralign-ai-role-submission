@@ -718,7 +718,12 @@ for the orchestrator. `GET /stream`: `id` = stream id, `event` = type,
 the run's backlog is replayed first; `?from=now`, `?follow=false`, `?max_s=`.
 `POST /chaos/{fault}` sets `Keys.faults` (default 1 shot; `false_claim` is
 scoped to `browser.espocrm` unless `skill` is given) and emits
-`fault.injected` (phase `injected`); `kill_worker` kills the agent's compose
+`fault.injected` (phase `injected`); **Track N:** the injection belongs to
+`run_id` (query or body) if given, else to the most recent run in flight
+(created … running; never a `completed_pending_input` one), else it is
+`pending` (`Keys.faults_pending`) and the first run whose worker consumes the
+shot gets it on its timeline (`faults.attach_pending`: phase `injected`,
+`attached: true`, just before phase `consumed`); `make chaos-* RUN=<id>`; `kill_worker` kills the agent's compose
 container via the docker socket unless `kill: false`; its event records
 `held_steps` (the steps whose lease the agent holds, read from the lease keys;
 the heartbeat's `current_step` can lag a step) and the report pairs the kill

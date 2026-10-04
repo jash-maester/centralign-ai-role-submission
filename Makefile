@@ -69,25 +69,29 @@ clean:  ## stop and delete all volumes (CRM, ledger, evidence)
 	$(DC) --profile tools down -v --remove-orphans
 
 # ---- chaos (plans/05-demo-and-submission.md) --------------------------------
-chaos-false-claim:  ## next browser step claims done without acting
-	curl -fsS -X POST $(API)/chaos/false_claim && echo
+# RUN=<id> attributes the fault to that run; without it the API picks the most
+# recent run in flight, or records it as pending for the next run that consumes it.
+CHAOS_RUN = $(if $(RUN),?run_id=$(RUN))
 
-chaos-kill-browser:  ## docker kill the browser operator currently holding a lease
+chaos-false-claim:  ## next browser step claims done without acting [RUN=]
+	curl -fsS -X POST "$(API)/chaos/false_claim$(CHAOS_RUN)" && echo
+
+chaos-kill-browser:  ## docker kill the browser operator currently holding a lease [RUN=]
 	@holder=$$(curl -fsS $(API)/agents 2>/dev/null | python3 -c 'import json,sys; a=[x for x in json.load(sys.stdin) if x.get("id","").startswith("worker-browser") and x.get("current_step")]; print(a[0]["id"] if a else "")' 2>/dev/null); \
 	if [ -z "$$holder" ]; then for a in worker-browser-1 worker-browser-2; do \
 		live=$$($(DC) exec -T redis redis-cli GET $${LEDGER_NS:+$$LEDGER_NS:}agent:$$a:alive); \
 		case "$$live" in *'"current_step": "'*|*'"current_step":"'*) holder=$$a; break;; esac; done; fi; \
 	if [ -z "$$holder" ]; then echo "no browser operator holds a lease right now"; exit 1; fi; \
-	curl -fsS -X POST $(API)/chaos/kill_worker -H 'content-type: application/json' -d "{\"agent_id\":\"$$holder\",\"kill\":false}" >/dev/null 2>&1 \
+	curl -fsS -X POST "$(API)/chaos/kill_worker$(CHAOS_RUN)" -H 'content-type: application/json' -d "{\"agent_id\":\"$$holder\",\"kill\":false}" >/dev/null 2>&1 \
 		|| echo "(API unavailable: kill not recorded on the timeline)"; \
 	echo "killing $$holder"; docker kill $$($(DC) ps -q $$holder)  # the replica only, not one-off `run` containers
 
-chaos-expire-session:  ## invalidate the CRM session cookie (next browser step re-logs in)
-	@curl -fsS -X POST $(API)/chaos/expire_session 2>/dev/null && echo \
+chaos-expire-session:  ## invalidate the CRM session cookie (next browser step re-logs in) [RUN=]
+	@curl -fsS -X POST "$(API)/chaos/expire_session$(CHAOS_RUN)" 2>/dev/null && echo \
 		|| $(DC) exec -T redis redis-cli HSET $${LEDGER_NS:+$$LEDGER_NS:}faults expire_session 1
 
-chaos-model-outage:  ## make the primary worker model fail
-	curl -fsS -X POST $(API)/chaos/model_outage && echo
+chaos-model-outage:  ## make the primary worker model fail [RUN=]
+	curl -fsS -X POST "$(API)/chaos/model_outage$(CHAOS_RUN)" && echo
 
 determinism:  ## make determinism LEVEL=1.0 [RUN=run_x]
 	curl -fsS -X POST $(API)/runs/$(RUN)/determinism -H 'content-type: application/json' -d '{"level": $(LEVEL)}' && echo

@@ -132,6 +132,10 @@ class OpenRouterBackend:
         outage = role in MODEL_OUTAGE_ROLES and await self._consume_outage()
         if outage:
             models = [OUTAGE_MODEL, *models[1:]]
+            from . import faults
+
+            await faults.attach_pending(self.sink.r, self.sink.keys, FaultName.MODEL_OUTAGE, run_id=run_id,
+                                        step_id=step_id)
             await self.sink.emit(EventType.FAULT_INJECTED, {
                 "fault": FaultName.MODEL_OUTAGE.value, "switch": FaultName.MODEL_OUTAGE.value, "phase": "consumed",
                 "effect": f"primary {role} model replaced by {OUTAGE_MODEL}", "role": role,

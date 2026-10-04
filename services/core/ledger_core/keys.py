@@ -91,6 +91,10 @@ class Keys:
         return self._k("faults")
 
     @property
+    def faults_pending(self) -> str:  # Hash fault -> JSON: injected while no run was running (Track N)
+        return self._k("faults", "pending")
+
+    @property
     def crm_secrets(self) -> str:  # API keys written by the seed
         return self._k("config", "crm")
 

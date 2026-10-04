@@ -42,7 +42,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from ledger_core import llm
+from ledger_core import faults, llm
 from ledger_core.crm_api import split_name
 from ledger_core.dates import follow_up_due
 from ledger_core.events import append_event
@@ -277,6 +277,7 @@ class BrowserHandler:
             return False
         if await ctx.r.hget(ctx.keys.faults, shot) == "on":
             await ctx.r.hdel(ctx.keys.faults, shot)  # browser faults are one-shot even when "on"
+        await faults.attach_pending(ctx.r, ctx.keys, fault, run_id=step.run_id, step_id=step.id)
         await append_event(ctx.r, ctx.keys, Event(
             run_id=step.run_id, step_id=step.id, actor=ctx.agent_id, type=EventType.FAULT_INJECTED,
             payload={"fault": fault.value, "switch": shot, "phase": "consumed", "agent_id": ctx.agent_id}))

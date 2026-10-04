@@ -39,7 +39,10 @@ make replay RUN=run_7f3a   # POST /runs/{id}/replay; cache-only, zero live LLM c
 ```
 
 Each calls `POST /chaos/{fault}` (or docker directly for kill) and emits a
-`fault.injected` event so the timeline shows cause next to recovery.
+`fault.injected` event so the timeline shows cause next to recovery. Add
+`RUN=<id>` to pin the fault to a run; without it the API picks the most recent
+run in flight, or (none in flight) holds it as pending for the next run that
+consumes it (Track N).
 
 ## Design note outline (`docs/design-note.md`)
 
