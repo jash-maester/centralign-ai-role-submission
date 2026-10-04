@@ -166,6 +166,7 @@ Rules that make it correct:
 `fault.injected`, `run.completed`, `run.completed_pending_input`, `run.failed`,
 `run.config_updated`, `llm.cache_hit`, `llm.budget_exhausted`, `spend.cap_reached`,
 `step.replanned`, `step.stale_fence` (A4 logging), `llm.call` (tokens/cost per call).
+`run.status` (non-terminal run status change, payload `{from, to}`; added in W1, the GUI reducer maps `to` onto the run).
 
 Every event: `{id, ts, run_id, step_id?, actor, type, payload}`.
 
@@ -265,6 +266,12 @@ meta-reviewer answers with a `task.artifact` whose data part is:
   (`Verifier(reject_policy=...)`) so the orchestrator can hold steps for B5.
 - Bus entries the dead consumer never acked are XAUTOCLAIMed after 30s idle;
   harmless because the lease + state machine decide who works on a step.
+
+### W1 integration notes
+
+- `web/src/api/protocol.schema.json` is regenerated with `make schema` whenever `protocol.py` changes; `web/src/api/types.ts` `EVENT_TYPES` must list the same members (checked by `make web-check`).
+- `make test-browser` collects the whole `tests/` tree inside the browser image, so test modules that need test-image-only libraries (e.g. `respx`) use `pytest.importorskip` instead of a bare import.
+- Contact `title` is stored by EspoCRM on the account link (`AccountContact.role`); contacts created without an account have no title, so planner expects must not include `title` for account-less leads (both the REST and browser skills behave this way).
 
 ## 6. Models (OpenRouter)
 
