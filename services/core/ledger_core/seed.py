@@ -32,6 +32,8 @@ log = logging.getLogger("seed")
 ENTITIES = ("Contact", "Account", "Task", "Opportunity", "Lead")
 READ_ONLY = {"create": "no", "read": "all", "edit": "no", "delete": "no", "stream": "all"}
 READ_WRITE = {"create": "yes", "read": "all", "edit": "all", "delete": "no", "stream": "all"}
+# Both API users may read the user list (owner lookup by userName); never edit it.
+USER_READ = {"read": "all", "edit": "no"}
 
 
 class Espo:
@@ -88,9 +90,22 @@ class Espo:
         return self.create(entity, data), True
 
 
-def ensure_role(espo: Espo, name: str, perms: dict) -> str:
-    data = {"name": name, "data": {e: perms for e in ENTITIES}, "fieldData": {}}
+def ensure_role(espo: Espo, name: str, perms: dict, extra: dict | None = None) -> str:
+    """Find-or-create a role. `extra` holds role-level permissions (e.g.
+    assignmentPermission); it and the scope table are re-applied to an existing
+    role when they drift, so re-running the seed upgrades older stacks."""
+    extra = extra or {}
+    scopes = {e: perms for e in ENTITIES} | {"User": USER_READ}
+    data = {"name": name, "data": scopes, "fieldData": {}, **extra}
     role, created = espo.ensure("Role", "name", name, data)
+    if not created:
+        current = espo.get("Role", role["id"])
+        drift = [k for k, v in extra.items() if current.get(k) != v]
+        if (current.get("data") or {}).get("User") != USER_READ:
+            drift.append("data.User")
+        if drift:
+            espo.update("Role", role["id"], {"data": scopes, **extra})
+            log.info("role %-28s updated %s", name, drift)
     log.info("role %-28s %s", name, "created" if created else "exists")
     return role["id"]
 
@@ -152,7 +167,9 @@ def seed(data_path: Path) -> dict[str, str]:
     log.info("user %-28s %s", s.espo_operator_user, "created" if created else "exists")
 
     ro_role = ensure_role(espo, "Ledger verifier (read-only)", READ_ONLY)
-    rw_role = ensure_role(espo, "Ledger writer (fallback)", READ_WRITE)
+    # The writer assigns contacts/tasks to their owners (playbook routing), which
+    # EspoCRM forbids unless the role may assign to any user.
+    rw_role = ensure_role(espo, "Ledger writer (fallback)", READ_WRITE, {"assignmentPermission": "all"})
     verifier_key = ensure_api_user(espo, "ledger-verifier", ro_role)
     writer_key = ensure_api_user(espo, "ledger-writer", rw_role)
 

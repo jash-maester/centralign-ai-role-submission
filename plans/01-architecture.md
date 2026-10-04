@@ -406,6 +406,11 @@ CRM credentials are scoped at the CRM itself (seeded by `make seed`): the
 verifier and meta-reviewer use the `ledger-verifier` API user with a
 **read-only** role; only the `api.espocrm` fallback skill gets the
 `ledger-writer` key; the browser operator logs in as `ledger.operator`.
+Both API roles may read the user list (owner lookup by userName); the writer
+role also has `assignmentPermission: all` so it can assign contacts and tasks
+to their routed owner. A search step's claimed result is `matched` (exact
+normalised email), `ambiguous` (one or more probable fuzzy matches, which go to
+review) or `none`.
 
 Key property: the operator acts through the **browser**; the verifier reads
 through the **REST API**. Action and verification use different channels, so
