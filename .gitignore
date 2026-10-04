@@ -11,3 +11,6 @@ evidence/
 .claude/worktrees/
 web/dist-mock/
 web/screenshots/
+
+# Local design bundles (contents live in plans/ and web/design/)
+*.zip
