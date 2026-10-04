@@ -273,6 +273,38 @@ meta-reviewer answers with a `task.artifact` whose data part is:
 - `make test-browser` collects the whole `tests/` tree inside the browser image, so test modules that need test-image-only libraries (e.g. `respx`) use `pytest.importorskip` instead of a bare import.
 - Contact `title` is stored by EspoCRM on the account link (`AccountContact.role`); contacts created without an account have no title, so planner expects must not include `title` for account-less leads (both the REST and browser skills behave this way).
 
+### Implementation notes (Track G, orchestrator)
+
+- `orchestrator.py` reconciles each run idempotently from ledger state (events
+  trigger a pass; every 5 s all active runs are swept; the reaper runs inside).
+  `submit_goal()` creates the run and its RunConfig (playbook + overrides).
+- Understand/plan are the only LLM calls (`orchestrator_llm.py`, schemas
+  `Understanding` / `Plan`, re-asked up to 3 times on invalid output). The
+  initial plan may contain only run-level steps (file.parse); per-lead lanes
+  come from deterministic fan-out (`orchestrator_lanes.py`).
+- Lanes are `lead:<row>`; stages: search -> (matched: update | none + owner:
+  create | ambiguous / no owner: review.ambiguity) -> task -> tail stages
+  registered with `register_tail()` (W3 email). Phone-only rows get a
+  review.ambiguity (reason `phone_only`) at fan-out.
+- A planned step may hold `bind:<selector>.<field>` values (e.g.
+  `bind:contact.contact_id`), resolved at release from the lane's committed
+  step (verdict.observed first, then claim data). Workers never see them.
+- Review decisions continue a lane when the review step is committed and a
+  decision is readable from fact `review:<lane>` (or the review step's claim
+  data): `{decision: skip | match_existing | create_new | link_account, value}`.
+- Replan (B5): `orchestrator_replan.reject_policy` holds a CRM step in
+  `rejected` once `replan_after_rejections` is reached and the route
+  (`crm_write_path=auto`) has another skill; the lane's remaining steps are
+  replanned onto it (plan.revised with `replaces`). Verifier services should
+  pass `reject_policy=` this function.
+- Finish: when nothing moves without a review/human, `checks/run.py` sweeps
+  every criterion per lane (REST via the verifier's read-only key, facts);
+  terminal events carry `criteria`, `lanes` and `steps` counts. Email
+  criteria stay `pending` until email lanes exist.
+- The run hash `run:{id}` gains a field `event` (`{name, date, due,
+  task_subject}`), from the input's `<name>.meta.json` (null date = the day
+  before the run).
+
 ## 6. Models (OpenRouter)
 
 Configured by role in `.env`, never hard-coded:
