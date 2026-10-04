@@ -123,8 +123,11 @@ async def create_run(r, keys: Keys, body: NewRun, *, replay_of: str | None = Non
         # hand-written plan: born `running` without criteria, so the orchestrator
         # never runs understand/plan (LLM) on it
         run.status = RunStatus.RUNNING
-    await ledger.create_run(r, keys, run, actor=ACTOR)
+    # Config first (as orchestrator.submit_goal does): once run.created is out, an
+    # orchestrator may pick the run up and would store playbook defaults instead,
+    # silently dropping the submitted overrides (seen in e2e: determinism 1.0 lost).
     await run_config.init(r, keys, run.id, cfg, actor=ACTOR)
+    await ledger.create_run(r, keys, run, actor=ACTOR)
     if steps:
         await ledger.create_steps(r, keys, steps, actor=ACTOR, payload={"source": "hand-written plan (API)"})
         await ledger.release_dependents(r, keys, run.id, actor=ACTOR)

@@ -1,0 +1,26 @@
+# Overlay for `make test-e2e` (Track M): the whole stack runs on the scripted
+# LLM backend (tests/fixtures/llm), so the e2e suite is deterministic and spends
+# none of the free OpenRouter budget. The test container gets the docker socket
+# (as root) so tests can kill and restart compose services (F1, A9).
+x-scripted: &scripted
+  environment:
+    LLM_BACKEND: scripted
+
+services:
+  api: *scripted
+  orchestrator: *scripted
+  verifier: *scripted
+  meta-reviewer: *scripted
+  worker-api: *scripted
+  worker-parser: *scripted
+  worker-drafter: *scripted
+  worker-mailer: *scripted
+  worker-browser-1: *scripted
+  worker-browser-2: *scripted
+  test:
+    environment:
+      LLM_BACKEND: scripted
+      E2E_API_URL: http://api:8000
+    user: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

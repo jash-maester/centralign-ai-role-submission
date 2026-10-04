@@ -32,7 +32,7 @@ def test_backlog_for_run_and_resume(client):
     assert body.status_code == 200
     assert body.headers["content-type"].startswith("text/event-stream")
     frames = sse_events(body.text)
-    assert [f["event"] for f in frames] == ["run.created", "run.config_updated"]
+    assert [f["event"] for f in frames] == ["run.config_updated", "run.created"]  # config first (Track M)
     data = [json.loads(f["data"]) for f in frames]
     assert all(d["run_id"] == rid for d in data) and data[0]["id"] == frames[0]["id"]
     assert "retry: 2000" in body.text

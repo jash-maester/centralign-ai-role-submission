@@ -1,13 +1,20 @@
 # Ledger — everything runs through docker compose. Host needs only Docker.
 SHELL := /bin/bash
 DC := docker compose
-API := http://localhost:$${API_PORT:-8000}
+# Host port of this stack's API: from the environment, else .env (worktree stacks use their
+# own ports), else 8000. Without this the chaos targets hit whichever stack owns :8000.
+API_PORT ?= $(shell sed -n 's/^API_PORT=//p' .env 2>/dev/null | tail -n 1)
+API := http://localhost:$(or $(API_PORT),8000)
+# e2e (Track M): the whole stack on the scripted LLM backend; test container gets the docker socket
+E2E_DC := $(DC) -f docker-compose.yml -f tests/e2e/compose.e2e.yml
+E2E_SERVICES := redis espocrm mailpit api orchestrator verifier meta-reviewer worker-api worker-parser \
+        worker-drafter worker-mailer worker-browser-1 worker-browser-2
 RUN ?=
 LEVEL ?= 1.0
 ARGS ?=
 
 .PHONY: help up down build logs ps seed snapshot test test-unit test-crm test-browser test-live test-gui \
-        demo schema openapi clean chaos-false-claim chaos-kill-browser chaos-expire-session \
+        demo schema openapi clean e2e-up test-e2e chaos-false-claim chaos-kill-browser chaos-expire-session \
         chaos-model-outage determinism replay web-check
 
 help:  ## list targets
@@ -44,6 +51,15 @@ test-unit:  ## unit tests only (Redis, no CRM)
 test-crm:  ## CRM integration tests only
 	$(DC) run --rm test pytest -p no:cacheprovider -q -m crm tests $(ARGS)
 
+e2e-up:  ## start the stack for the e2e suite (scripted LLM, no web) and seed it
+	$(E2E_DC) up -d --build --wait $(E2E_SERVICES)
+	$(E2E_DC) run --rm seed
+
+test-e2e:  ## e2e suite against the full stack, LLM_BACKEND=scripted (FRESH=1: make clean first; ARGS=)
+	$(if $(FRESH),$(MAKE) clean)
+	$(MAKE) e2e-up
+	$(E2E_DC) run --rm test pytest -p no:cacheprovider -q -m e2e tests/e2e $(ARGS)
+
 test-browser:  ## Playwright tests inside the browser image
 	$(DC) run --rm --no-deps -v ./tests:/repo/tests:ro -v ./services/browser/browser_worker:/app/browser_worker:ro \
 		-e PYTHONPATH=/app -e PYTHONDONTWRITEBYTECODE=1 worker-browser-1 \
@@ -79,10 +95,7 @@ chaos-false-claim:  ## next browser step claims done without acting
 	curl -fsS -X POST $(API)/chaos/false_claim && echo
 
 chaos-kill-browser:  ## docker kill the browser operator currently holding a lease
-	@holder=$$(curl -fsS $(API)/agents 2>/dev/null | python3 -c 'import json,sys; a=[x for x in json.load(sys.stdin) if x.get("id","").startswith("worker-browser") and x.get("current_step")]; print(a[0]["id"] if a else "")' 2>/dev/null); \
-	if [ -z "$$holder" ]; then for a in worker-browser-1 worker-browser-2; do \
-		live=$$($(DC) exec -T redis redis-cli GET $${LEDGER_NS:+$$LEDGER_NS:}agent:$$a:alive); \
-		case "$$live" in *'"current_step": "'*|*'"current_step":"'*) holder=$$a; break;; esac; done; fi; \
+	@holder=$$($(DC) exec -T api python -c 'import json,urllib.request as u; a=[x for x in json.load(u.urlopen("http://localhost:8000/agents")) if x.get("id","").startswith("worker-browser") and x.get("current_step")]; print(a[0]["id"] if a else "")' 2>/dev/null | tr -d '\r'); \
 	if [ -z "$$holder" ]; then echo "no browser operator holds a lease right now"; exit 1; fi; \
 	curl -fsS -X POST $(API)/chaos/kill_worker -H 'content-type: application/json' -d "{\"agent_id\":\"$$holder\",\"kill\":false}" >/dev/null 2>&1 \
 		|| echo "(API unavailable: kill not recorded on the timeline)"; \

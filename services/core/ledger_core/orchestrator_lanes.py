@@ -261,7 +261,10 @@ def fan_out(run_id: str, parse_step: Step, facts: dict[str, Any], cfg: RunConfig
 
 def contact_stage(ctx: LaneContext, *, update_contact_id: str | None, account_id: str | None = None,
                   depends_on: list[str], account_name: str | None = None) -> list[Step]:
-    """Contact step (create or update) + follow-up task, then any tail stages."""
+    """Contact step (create or update) + follow-up task, then any tail stages.
+    account_name (Track M fix): the linked account's exact CRM name, so the browser
+    operator (which links by name in the UI, it has no REST key) links the same
+    account the verifier expects by id, not the lead's free-text company."""
     lead, cfg, lane = ctx.lead, ctx.cfg, ctx.lane
     email = (lead.get("email") or "").strip().lower()
     lead_in: Any = ctx.lead_ref or lead

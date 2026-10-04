@@ -35,7 +35,9 @@ async def test_create_run_for_orchestrator(client, r, keys):
     assert run["config_hash"] == RunConfig.model_validate(
         (await run_config.get_record(r, keys, run["id"]))["config"]).config_hash()
     types = [e.type for e in await read_events(r, keys, run_id=run["id"])]
-    assert types[:2] == [EventType.RUN_CREATED, EventType.RUN_CONFIG_UPDATED]
+    # config is stored before run.created (Track M): an orchestrator that picks the run
+    # up at run.created must find the submitted config, not store playbook defaults
+    assert types[:2] == [EventType.RUN_CONFIG_UPDATED, EventType.RUN_CREATED]
 
     listed = client.get("/runs").json()
     assert [x["id"] for x in listed] == [run["id"]]
@@ -71,7 +73,7 @@ async def test_events_pagination_and_type_filter(client, r, keys):
     rid = run["id"]
     all_events = client.get(f"/runs/{rid}/events").json()
     types = [e["type"] for e in all_events["events"]]
-    assert types[0] == "run.created" and "plan.created" in types and "step.ready" in types
+    assert types[:2] == ["run.config_updated", "run.created"] and "plan.created" in types and "step.ready" in types
     assert all_events["next"] is None
 
     page1 = client.get(f"/runs/{rid}/events", params={"limit": 2}).json()
