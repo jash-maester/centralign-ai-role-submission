@@ -171,6 +171,16 @@ async def sent(args: dict[str, Any], expect: dict[str, Any], ctx: CheckContext) 
         "subjects": [m.get("Subject") for m in msgs][:10],
         "count": len(matching),
     }
+    # Track K (additive): RunConfig.dry_run. The postcondition becomes "nothing
+    # was sent": the claim's dry_run is trusted only when the run config says so.
+    cfg = (ctx.extra or {}).get("config")
+    if args.get("dry_run") or ((ctx.claim or {}).get("dry_run") and getattr(cfg, "dry_run", False)):
+        mid = (ctx.claim or {}).get("message_id")
+        sent = [m for m in matching if not mid or mid in (m.get("ID"), m.get("MessageID"))]
+        observed["dry_run"] = True
+        if sent:
+            return CheckResult(False, f"dry run, yet Mailpit shows {len(sent)} message(s) to {to}", observed)
+        return CheckResult(True, f"dry run: nothing sent to {to}, as configured", observed)
     if not matching:
         what = f" with subject {subject!r}" if subject else ""
         claimed = (ctx.claim or {}).get("message_id")

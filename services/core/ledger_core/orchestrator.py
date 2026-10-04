@@ -60,6 +60,7 @@ from .events import append_event
 from .keys import Keys
 from .orchestrator_lanes import (
     REVIEW_KINDS,
+    RUN_STAGES,
     BindError,
     LaneContext,
     after_lookup,
@@ -98,6 +99,8 @@ from .protocol import (
 from .settings import get_settings
 
 log = logging.getLogger("ledger.orchestrator")
+
+from . import orchestrator_email  # noqa: E402,F401 - registers the email run stage (Track K)
 S = StepStatus
 ACTOR = "orchestrator"
 
@@ -388,6 +391,11 @@ class Orchestrator:
             facts = await ledger.get_facts(self.r, self.keys, run.id)
             changed = await self._fan_out(run, steps, facts, cfg)
             changed |= await self._advance_lanes(run, steps, facts, cfg)
+            if RUN_STAGES:  # Track K: run-level stages (email drafts, approval batch, sends)
+                if changed:
+                    steps = await ledger.list_steps(self.r, self.keys, run.id)
+                for stage in RUN_STAGES:
+                    changed |= bool(await stage(self, run, steps, facts, cfg))
             if not changed:
                 revisions = await replan_run(self.r, self.keys, run.id, steps, cfg, actor=self.agent_id)
                 changed |= bool(revisions)

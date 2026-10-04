@@ -410,7 +410,7 @@ async def cmd_demo(a: argparse.Namespace) -> int:
         overrides = _overrides(a)
         path = overrides.get("crm_write_path") or RunConfig().crm_write_path
         crm_skill = {"api": "api.espocrm", "browser": "browser.espocrm", "auto": "browser.espocrm"}[path]
-        need = ["orchestrator", "verifier", "file.parse", crm_skill]
+        need = ["orchestrator", "verifier", "file.parse", crm_skill, "email.draft", "email.send"]
         if path == "auto":
             need.append("api.espocrm")
         live = await served(r, keys)
